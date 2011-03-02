@@ -1,0 +1,29 @@
+This is a library for implementing Ocaml jobs for the Disco map-reduce framework.
+
+Prerequisites:
+--------------
+
+. ocaml 3.12.0, ocamlfind/findlib
+
+. libzip-ocaml-dev/godi-zip/camlzip
+
+. sonet
+   $ git clone git://github.com/pmundkur/sonet.git
+   $ cd sonet && make install
+
+   To uninstall:
+   $ cd sonet && make uninstall
+
+Building:
+---------
+
+ $ make
+
+Using:
+------
+
+. Write a module implementing the lib/task:TASK interface, and pass this
+  module to Worker.start in your main program.
+
+. Use the bin/discojob.py program to submit your compiled executable
+  to Disco.

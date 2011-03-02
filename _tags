@@ -1,0 +1,2 @@
+<**/*.ml{i,}>: annot, warn_A, warn_e, warn_r, warn_l
+<lib>: include
