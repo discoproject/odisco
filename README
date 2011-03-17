@@ -5,7 +5,7 @@ Prerequisites:
 
 . ocaml 3.12.0, ocamlfind/findlib
 
-. libzip-ocaml-dev/godi-zip/camlzip
+. libzip-ocaml-dev (Debian/Ubuntu) / godi-zip (Godi) / camlzip (source)
 
 . sonet
    $ git clone git://github.com/pmundkur/sonet.git
@@ -22,8 +22,14 @@ Building:
 Using:
 ------
 
-. Write a module implementing the lib/task:TASK interface, and pass this
-  module to Worker.start in your main program.
+. Write a module implementing the lib/task:TASK interface, and pass
+  this module to Worker.start in your main program.  See
+  tests/test_task.ml for an example.
 
 . Use the bin/discojob.py program to submit your compiled executable
   to Disco.
+
+Status:
+-------
+
+Currently under heavy development.
