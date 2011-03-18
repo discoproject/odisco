@@ -6,10 +6,8 @@ def owner():
     return "%s@%s" % (pwd.getpwuid(os.getuid()).pw_name,
                       socket.gethostname())
 
-if '.disco-home' in os.listdir('.'):
-    sys.path.append('lib')
-import disco.dencode as dencode
-from disco.worker.classic.worker import JOBPACK_FMT_MAGIC, JOBPACK_HDR_FMT, JOBPACK_HDR_SIZE
+from disco import json
+from disco.job import JobPack
 
 def usage():
     print "Usage: %s [options]"
@@ -56,9 +54,6 @@ def validate(jobname, jobdict, worker, workdir):
 
 def pack(jobname, jobdict, worker, workdir):
     import cStringIO
-    from socket import htonl
-    from struct import pack
-
     zmem = cStringIO.StringIO()
     z = zipfile.ZipFile(zmem, "w")
     # FIXME: Strip off leading pathname elements from zipped paths
@@ -71,16 +66,19 @@ def pack(jobname, jobdict, worker, workdir):
                 z.write(os.path.join(dirname, n))
         os.path.walk(workdir, walker, None)
     z.close()
-    jd, jh, wd = dencode.dumps(jobdict), zmem.getvalue(), ''
-    jd_len, jh_len, wd_len = len(jd), len(jh), len(wd)
-    jd_ofs = JOBPACK_HDR_SIZE
-    jh_ofs = jd_ofs + jd_len
-    wd_ofs = jh_ofs + jh_len
-    pr_ofs = wd_ofs + wd_len
-    toc = pack(JOBPACK_HDR_FMT, htonl(JOBPACK_FMT_MAGIC),
-               htonl(jd_ofs), htonl(jh_ofs), htonl(wd_ofs), htonl(pr_ofs))
-    hdr = toc + '\0'*(JOBPACK_HDR_SIZE - len(toc))
-    return hdr + jd + jh + wd
+
+    def contents(*t):
+        offset = JobPack.HEADER_SIZE
+        for segment in t:
+            yield offset, segment
+            offset += len(segment)
+
+    offsets, fields = zip(*contents(json.dumps(jobdict),
+                                    json.dumps({}),
+                                    zmem.getvalue(),
+                                    ''))
+    hdr = JobPack.header(offsets)
+    return hdr + ''.join(fields)
 
 def submit(master, jobpack):
     from disco.settings import DiscoSettings
