@@ -1,1 +1,1 @@
-<test_task.{byte,native}>: package(camlzip), package(sonet.httplib)
+<test_task.{byte,native}>: package(camlzip), package(sonet.httplib), package(sonet.jsonlib)

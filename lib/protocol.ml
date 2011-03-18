@@ -1,4 +1,6 @@
-module B = Dencode
+module J = Json
+module JC = Json_conv
+module JP = Json_parse
 module E = Errors
 module U = Unix
 
@@ -120,31 +122,33 @@ let split s =
           let slen = String.length s in
             (String.sub s 0 i), (String.sub s (i+1) (slen - i - 1))
 
-let settings_of_bencode b =
-  let lookup key = List.assoc key (B.dict_val b) in
-  let settings_port = Int64.to_int (B.int_val (lookup "port")) in
-  let settings_put_port = Int64.to_int (B.int_val (lookup "put_port")) in
+let settings_of b =
+  let table = JC.to_object_table b in
+  let lookup key = JC.object_field table key in
+  let settings_port = JC.to_int (lookup "port") in
+  let settings_put_port = JC.to_int (lookup "put_port") in
     { settings_port; settings_put_port }
 
-let taskinfo_of_bencode b =
-  let lookup key = List.assoc key (B.dict_val b) in
-  let task_id = Int64.to_int (B.int_val (lookup "taskid")) in
-  let task_stage = stage_of_string (B.string_val (lookup "mode")) in
-  let task_name = B.string_val (lookup "jobname") in
-  let task_host = B.string_val (lookup "host") in
+let taskinfo_of b =
+  let table = JC.to_object_table b in
+  let lookup key = JC.object_field table key in
+  let task_id = JC.to_int (lookup "taskid") in
+  let task_stage = stage_of_string (JC.to_string (lookup "mode")) in
+  let task_name = JC.to_string (lookup "jobname") in
+  let task_host = JC.to_string (lookup "host") in
   let task_rootpath = "./" in
     { task_id; task_stage; task_name; task_host; task_rootpath }
 
-let inputs_of_bencode b =
-  let msg = B.list_val b in
-  let inps_status = inputs_status_of_string (B.string_val (List.hd msg)) in
-  let minps = B.list_val (List.hd (List.tl msg)) in
+let inputs_of b =
+  let msg = JC.to_list b in
+  let inps_status = inputs_status_of_string (JC.to_string (List.hd msg)) in
+  let minps = JC.to_list (List.hd (List.tl msg)) in
   let mk_inp =
     (fun l ->
-       let l = B.list_val l in
-       let inp_id = Int64.to_int (B.int_val (List.hd l)) in
-       let inp_status = input_status_of_string (B.string_val (List.nth l 1)) in
-       let inps = List.map B.string_val (B.list_val (List.nth l 2)) in
+       let l = JC.to_list l in
+       let inp_id = JC.to_int (List.hd l) in
+       let inp_status = input_status_of_string (JC.to_string (List.nth l 1)) in
+       let inps = List.map JC.to_string (JC.to_list (List.nth l 2)) in
          inp_id, inp_status, inps) in
     inps_status, List.map mk_inp minps
 
@@ -168,26 +172,27 @@ let rec get_raw_master_msg ic =
               raise (E.Worker_failure (E.Protocol_error (inp, es ^ ":" ^ bt)))
 
 let master_msg_of = function
-  | "ok", _ -> M_ok
-  | "die", _ -> M_die
+  | "ok", _     -> M_ok
+  | "die", _    -> M_die
   | "ignore", _ -> M_ignore
-  | "set", b ->
-      (try M_settings (settings_of_bencode b)
-       with _ -> raise (E.Worker_failure (E.Bad_msg ("set", b))))
-  | "tsk", b ->
-      (try M_taskinfo (taskinfo_of_bencode b)
-       with _ -> raise (E.Worker_failure (E.Bad_msg ("tsk", b))))
-  | "inp", b ->
-      (try
-         let status, inputs = inputs_of_bencode b in
-         M_inputs (status, inputs)
-       with _ -> raise (E.Worker_failure (E.Bad_msg ("inp", b))))
-  | m, b ->
-      raise (E.Worker_failure (E.Unknown_msg (m, b)))
+  | "set", j    -> M_settings (settings_of j)
+  | "tsk", j    -> M_taskinfo (taskinfo_of j)
+  | "inp", j    -> (let status, inputs = inputs_of j in
+                      M_inputs (status, inputs))
+  | m, j        -> raise (E.Worker_failure (E.Unknown_msg (m, j)))
 
 let next_master_msg ic =
   let msg, payload = get_raw_master_msg ic in
-    master_msg_of (String.lowercase msg, B.of_string payload)
+    Utils.dbg "<- %s: %s" msg payload;
+    try
+      master_msg_of (String.lowercase msg, JP.of_string payload)
+    with
+      | JP.Parse_error e ->
+          raise (E.Worker_failure (E.Protocol_error (payload, JP.string_of_error e)))
+      | JC.Json_conv_error e ->
+          raise (E.Worker_failure (E.Bad_msg (msg, payload, JC.string_of_error e)))
+      | e ->
+          raise e
 
 (* worker -> master *)
 
@@ -221,31 +226,31 @@ type worker_msg =
 
 let prepare_msg = function
   | W_version s ->
-      "VSN", B.to_string (B.String s)
+      "VSN", J.to_string (J.String s)
   | W_pid pid ->
-      "PID", B.to_string (B.String (string_of_int pid))
+      "PID", J.to_string (J.String (string_of_int pid))
   | W_settings ->
-      "SET", B.to_string (B.String "")
+      "SET", J.to_string (J.String "")
   | W_taskinfo ->
-      "TSK", B.to_string (B.String "")
+      "TSK", J.to_string (J.String "")
   | W_input exclude_list ->
-      let el = List.map (fun i -> B.Int (Int64.of_int i)) exclude_list in
-        "INP", B.to_string (B.List el)
+      let el = List.map (fun i -> J.Int (Int64.of_int i)) exclude_list in
+        "INP", J.to_string (J.Array (Array.of_list el))
   | W_input_failure (_id, msg) ->
-      "DAT", B.to_string (B.String msg)
+      "DAT", J.to_string (J.String msg)
   | W_status s ->
-      "STA", B.to_string (B.String s)
+      "STA", J.to_string (J.String s)
   | W_error s ->
-      "ERR", B.to_string (B.String s)
+      "ERR", J.to_string (J.String s)
   | W_output o ->
-      let m = B.List ([B.String o.filename;
-                       B.String (string_of_output_type o.otype);
-                      ] @ (match o.label with
-                             | None -> []
-                             | Some l -> [B.String l])) in
-      "OUT", B.to_string m
+      let list = [J.String o.filename;
+                  J.String (string_of_output_type o.otype);
+                 ] @ (match o.label with
+                        | None -> []
+                        | Some l -> [J.String l]) in
+        "OUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
-      "END", B.to_string (B.String "")
+      "END", J.to_string (J.String "")
 
 let version = "00"
 
@@ -255,6 +260,7 @@ let send_msg m oc =
               (tm.U.tm_year - 100) tm.U.tm_mon tm.U.tm_mday
               tm.U.tm_hour tm.U.tm_min tm.U.tm_sec) in
   let tag, payload = prepare_msg m in
+    Utils.dbg "-> %s: %s" tag payload;
     Printf.fprintf oc "**<%s:%s> %s \n%s\n<>**\n"
       tag version ts payload
 

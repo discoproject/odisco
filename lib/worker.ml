@@ -1,4 +1,4 @@
-module B = Dencode
+module JC = Json_conv
 module P = Protocol
 module N = Env
 module E = Errors
@@ -166,8 +166,8 @@ let error_wrap ic oc f =
       | E.Worker_failure e ->
           err ((Printf.sprintf "%s\n" (E.string_of_error e))
                ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
-      | B.Parse_error e ->
-          err ((Printf.sprintf "Protocol parse error: %s\n" (B.string_of_error e))
+      | JC.Json_conv_error e ->
+          err ((Printf.sprintf "Protocol parse error: %s\n" (JC.string_of_error e))
                ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
       | e ->
           err ((Printf.sprintf "Uncaught exception: %s\n" (Printexc.to_string e))

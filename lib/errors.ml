@@ -1,11 +1,11 @@
-module B = Dencode
+module J = Json
 module C = Http_client
 
 type error =
   | Unknown_stage of string
   | Protocol_error of string * string
-  | Bad_msg of string * B.t
-  | Unknown_msg of string * B.t
+  | Bad_msg of string * string * string
+  | Unknown_msg of string * J.t
   | Unexpected_msg of string
   | Invalid_input of string
   | Input_failure of (C.url * C.error) list
@@ -17,10 +17,10 @@ let string_of_error = function
       Printf.sprintf "unknown stage '%s'" s
   | Protocol_error (i, es) ->
       Printf.sprintf "protocol error on input '%s': %s" i es
-  | Bad_msg (m, v) ->
-      Printf.sprintf "bad '%s' msg: %s" m (B.to_string v)
+  | Bad_msg (m, s, e) ->
+      Printf.sprintf "bad '%s' msg: %s (%s)" m s e
   | Unknown_msg (s, v) ->
-      Printf.sprintf "unknown msg '%s' (\"%s\")" s (B.string_of_type v)
+      Printf.sprintf "unknown msg '%s' (\"%s\")" s (J.string_of_type v)
   | Unexpected_msg m ->
       Printf.sprintf "unexpected msg '%s'" m
   | Invalid_input s ->
