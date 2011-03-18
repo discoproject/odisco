@@ -1,4 +1,2 @@
 test_task.byte
 test_task.native
-test_bencode.byte
-test_dencode.byte
