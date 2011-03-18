@@ -233,9 +233,9 @@ let prepare_msg = function
       "SET", J.to_string (J.String "")
   | W_taskinfo ->
       "TSK", J.to_string (J.String "")
-  | W_input exclude_list ->
-      let el = List.map (fun i -> J.Int (Int64.of_int i)) exclude_list in
-        "INP", J.to_string (J.Array (Array.of_list el))
+  | W_input _exclude_list ->
+      (* Placeholder until replica_id-based input protocol is completed on master. *)
+      "INP", J.to_string (J.String "")
   | W_input_failure (_id, msg) ->
       "DAT", J.to_string (J.String msg)
   | W_status s ->
