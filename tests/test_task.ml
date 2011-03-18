@@ -6,8 +6,8 @@ module TestTask = struct
   let map_init _ = ref 0
 
   let map cnt disco in_chan =
-    disco.Task.log (Printf.sprintf "Mapping %s on %s ...\n"
-                      disco.Task.input_url disco.Task.hostname);
+    disco.Task.log (Printf.sprintf "Mapping %s (%d bytes) on %s ...\n"
+                      disco.Task.input_url disco.Task.input_size disco.Task.hostname);
     let rec loop () =
       List.iter (fun w ->
                    match U.strip_word w with
@@ -25,8 +25,8 @@ module TestTask = struct
   let reduce_init _ = (Hashtbl.create 4096 : (string, int) Hashtbl.t)
 
   let reduce tbl disco in_chan =
-    disco.Task.log (Printf.sprintf "Reducing %s on %s ...\n"
-                      disco.Task.input_url disco.Task.hostname);
+    disco.Task.log (Printf.sprintf "Reducing %s (%d bytes) on %s ...\n"
+                      disco.Task.input_url disco.Task.input_size disco.Task.hostname);
     let lookup w = try Hashtbl.find tbl w with Not_found -> 0 in
     let rec loop () =
       let kv = U.string_split (input_line in_chan) ' ' in

@@ -35,10 +35,11 @@ let setup_task_env ic oc taskinfo =
                          (P.string_of_stage taskinfo.P.task_stage)
                          taskinfo.P.task_id
                          (Unix.time ())) in
-  let interface_maker input_url = {
+  let interface_maker input_url input_size = {
     Task.taskname = taskinfo.P.task_name;
     hostname = taskinfo.P.task_host;
     input_url;
+    input_size;
     output;
     log = fun s -> expect_ok ic oc (P.W_status s);
   } in
@@ -86,7 +87,7 @@ let get_task_inputs ic oc excl =
 
 let run_task ic oc settings taskinfo ?label task_init task_process task_done =
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
-  let callback = task_init (intf_for_input "") in
+  let callback = task_init (intf_for_input "" 0) in
   let fail_on_input_error = false in
   let process_input (processed, failed) ((id, _st, _inp) as input) =
     match resolve_input settings taskinfo ?label input with
@@ -106,7 +107,7 @@ let run_task ic oc settings taskinfo ?label task_init task_process task_done =
                    U.dbg "Input file name %s: length %d" (N.File.name fi) sz;
                    assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
                    (* TODO: FIXME: h may not be the actual input url *)
-                   task_process callback (intf_for_input (Uri.to_string h)) (Unix.in_channel_of_descr fd);
+                   task_process callback (intf_for_input (Uri.to_string h) sz) (Unix.in_channel_of_descr fd);
                    N.File.close fi;
                    (id :: processed), failed
           ) in
@@ -119,7 +120,7 @@ let run_task ic oc settings taskinfo ?label task_init task_process task_done =
         processed := newly_processed;
         fin := status == P.Inputs_done && failed = []
     done;
-    task_done callback (intf_for_input "");
+    task_done callback (intf_for_input "" 0);
     close_files !out_files;
     send_output_msg ic oc !out_files
 
