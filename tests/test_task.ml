@@ -1,5 +1,8 @@
 module U = Utils
 
+let output oc ~key value =
+  output_string oc (Printf.sprintf "%s %s\n" key value)
+
 module TestTask = struct
   type map_init = int ref
 
@@ -12,7 +15,7 @@ module TestTask = struct
       List.iter (fun w ->
                    match U.strip_word w with
                      | "" -> ()
-                     | key -> disco.Task.output ~key "1"; incr cnt
+                     | key -> output (disco.Task.out_channel ~label:None) ~key "1"; incr cnt
                 ) (U.string_split (input_line in_chan) ' ');
       loop ()
     in try loop () with End_of_file -> ()
@@ -37,7 +40,9 @@ module TestTask = struct
       try loop () with End_of_file -> ()
 
   let reduce_done tbl disco =
-    Hashtbl.iter (fun k v -> disco.Task.output k (Printf.sprintf "%d" v)) tbl;
+    Hashtbl.iter (fun k v ->
+                    output (disco.Task.out_channel ~label:None) k (Printf.sprintf "%d" v)
+                 ) tbl;
     disco.Task.log (Printf.sprintf "Reduce output %d entries.\n" (Hashtbl.length tbl))
 
 end

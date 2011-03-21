@@ -1,9 +1,9 @@
 type disco_interface = {
   taskname : string;
   hostname : string;
-  input_url: string;
+  input_url : string;
   input_size : int;
-  output : ?label:int -> key:string -> string -> unit;
+  out_channel : label:int option -> out_channel;
   log : string -> unit;
 }
 

@@ -17,7 +17,7 @@ type output = {
 
 let setup_task_env ic oc taskinfo =
   let out_files = ref ([] : (int option * output) list) in
-  let output_channel label =
+  let out_channel ~label =
     try (List.assoc label !out_files).chan
     with Not_found ->
       (let file = N.open_output_file taskinfo label in
@@ -28,9 +28,6 @@ let setup_task_env ic oc taskinfo =
        let out = { file; chan; output } in
          out_files := (label, out) :: !out_files;
          chan) in
-  let output ?label ~key value =
-    let oc = output_channel label in
-      output_string oc (Printf.sprintf "%s %s\n" key value) in
   let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
                          (P.string_of_stage taskinfo.P.task_stage)
                          taskinfo.P.task_id
@@ -40,7 +37,7 @@ let setup_task_env ic oc taskinfo =
     hostname = taskinfo.P.task_host;
     input_url;
     input_size;
-    output;
+    out_channel;
     log = fun s -> expect_ok ic oc (P.W_status s);
   } in
     Unix.mkdir task_rootpath 0o766;
