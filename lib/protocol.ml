@@ -152,24 +152,49 @@ let inputs_of b =
          inp_id, inp_status, inps) in
     inps_status, List.map mk_inp minps
 
+(* The master should respond within this time. *)
+let tIMEOUT = 5.0 *. 60.0 (* in seconds *)
+
+let bUFLEN = 1024
 let rec get_raw_master_msg ic =
-  let inp = input_line ic in
-  let msg, len_str = split inp in
-    match msg, len_str with
-      | "", "" ->
-          get_raw_master_msg ic
-      | _, "" | _, "0" ->
-          msg, ""
-      | _, len_str ->
-          try
-            let len = int_of_string len_str in
-            let buf = String.make len ' ' in
-              ignore (input ic buf 0 len);
-              msg, buf
-          with e ->
-            let es = Printexc.to_string e in
-            let bt = Printexc.get_backtrace () in
-              raise (E.Worker_failure (E.Protocol_error (inp, es ^ ":" ^ bt)))
+  let ifd = Unix.descr_of_in_channel ic in
+  let timeout = Unix.gettimeofday () +. tIMEOUT in
+  let get_timeout () =
+    let curtime = Unix.gettimeofday () in
+      if curtime < timeout then timeout -. curtime
+      else raise (E.Worker_failure (E.Protocol_error "timeout")) in
+  let msgbuf, buf, ofs = Buffer.create bUFLEN, String.make bUFLEN '\000', ref 0 in
+  let msg_info = ref None in
+  let process_prefix p =
+    let msg, len_str = split p in
+      try msg_info := Some (msg, int_of_string len_str)
+      with e ->
+        let es, bt = Printexc.to_string e, Printexc.get_backtrace () in
+          raise (E.Worker_failure (E.Protocol_parse_error (p, es ^ ":" ^ bt))) in
+  let msg_done () = (match !msg_info with
+                       | None -> false
+                       | Some (_, len) -> len < Buffer.length msgbuf) in
+  let return_val () = (match !msg_info with
+                         | Some (msg, len) -> msg, Buffer.sub msgbuf 0 len
+                         | None -> assert false) in
+  let rec do_read () =
+    let len = Unix.read ifd buf !ofs (String.length buf - !ofs) in
+      match !msg_info with
+        | None ->
+            (match (try Some (String.index_from buf !ofs '\n') with Not_found -> None) with
+               | Some nl -> (Buffer.add_substring msgbuf buf (nl+1) (!ofs + len - nl - 1);
+                             ofs := 0;
+                             process_prefix (String.sub buf 0 nl))
+               | None -> ofs := !ofs + len)
+        | Some (_, _msglen) ->
+            assert (!ofs = 0);
+            Buffer.add_substring msgbuf buf !ofs (!ofs + len) in
+  let rec loop () =
+    match Unix.select [ifd] [] [ifd] (get_timeout ()) with
+      | _, _, [_] -> raise (E.Worker_failure (E.Protocol_error "socket error"))
+      | [_], _, _ -> do_read (); if msg_done () then return_val () else loop ()
+      | _, _, _ -> loop ()
+  in loop ()
 
 let master_msg_of = function
   | "ok", _     -> M_ok
@@ -188,7 +213,7 @@ let next_master_msg ic =
       master_msg_of (String.lowercase msg, JP.of_string payload)
     with
       | JP.Parse_error e ->
-          raise (E.Worker_failure (E.Protocol_error (payload, JP.string_of_error e)))
+          raise (E.Worker_failure (E.Protocol_parse_error (payload, JP.string_of_error e)))
       | JC.Json_conv_error e ->
           raise (E.Worker_failure (E.Bad_msg (msg, payload, JC.string_of_error e)))
       | e ->
