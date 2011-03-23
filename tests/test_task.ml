@@ -48,4 +48,4 @@ module TestTask = struct
 end
 
 let _ =
-  Worker.test_start (module TestTask : Task.TASK)
+  Worker.start (module TestTask : Task.TASK)

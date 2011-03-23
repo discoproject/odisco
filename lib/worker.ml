@@ -174,7 +174,3 @@ let error_wrap ic oc f =
 let start task =
   Printexc.record_backtrace true;
   error_wrap stdin stderr (fun () -> start_protocol stdin stderr task)
-
-let test_start task =
-  Printexc.record_backtrace true;
-  start task
