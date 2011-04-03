@@ -56,48 +56,61 @@ let send_output_msg ic oc out_files =
                expect_ok ic oc (P.W_output f.output)
             ) out_files
 
-let resolve_input settings taskinfo ?label (id, _status, input) =
+let urls_of_replicas replicas =
+  List.map snd replicas
+
+let ids_of_replicas replicas =
+  List.map fst replicas
+
+let resolve_input settings taskinfo ?label (id, _status, replicas) =
   let norm_uri = (fun uri -> P.norm_uri settings uri) in
-    match List.map Uri.of_string input with
+    match List.map Uri.of_string (urls_of_replicas replicas) with
       | [] ->
           []
-      | (h :: _) as replicas ->
+      | (h :: _) as replica_urls ->
           (match P.scheme_of_uri h, label with
              | P.Dir, Some l ->
-                 let index = N.read_index taskinfo (List.map norm_uri replicas) in
+                 let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
                  let selected = List.assoc l index in
                    [norm_uri (Uri.of_string selected)]
              | P.Dir, None ->
-                 let index = N.read_index taskinfo (List.map norm_uri replicas) in
+                 let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
                  let selected = List.map snd index in
                    List.map (fun s -> norm_uri (Uri.of_string s)) selected
              | P.Disco, _ | P.Http, _ ->
-                 List.map norm_uri replicas
+                 List.map norm_uri replica_urls
              | s, _ ->
                  raise (E.Worker_failure (E.Unsupported_input_scheme (id, (P.string_of_scheme s))))
           )
 
 let get_task_inputs ic oc excl =
-  match P.send_request (P.W_input excl) ic oc with
-    | P.M_inputs (status, inputs) -> status, inputs
+  match P.send_request (P.W_input_exclude excl) ic oc with
+    | P.M_task_input (status, inputs) -> status, inputs
     | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
 let run_task ic oc settings taskinfo ?label task_init task_process task_done =
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" 0) in
   let fail_on_input_error = false in
-  let process_input (processed, failed) ((id, _st, _inp) as input) =
+  let rec process_input (processed, failed) ((id, _st, replicas) as input) =
     match resolve_input settings taskinfo ?label input with
       | _ when List.mem id processed ->
           processed, failed
       | [] ->
           (id :: processed), failed
-      | (h :: _) as replicas ->
-          (match N.download replicas taskinfo with
+      | (h :: _) as replica_urls ->
+          (match N.download replica_urls taskinfo with
              | N.Download_error err ->
-                 expect_ok ic oc (P.W_input_failure (id, E.string_of_error err));
-                 if fail_on_input_error then raise (E.Worker_failure err)
-                 else processed, (id :: failed)
+                 U.dbg "Download error on input %d: %s" id (E.string_of_error err);
+                 (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
+                    | P.M_ok
+                    | P.M_fail ->
+                        if fail_on_input_error then raise (E.Worker_failure err)
+                        else processed, (id :: failed)
+                    | P.M_retry new_replicas ->
+                        process_input (processed, failed) (id, _st, new_replicas)
+                    | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
+                 );
              | N.Download_file fi ->
                  let fd = N.File.fd fi in
                  let sz = (Unix.fstat fd).Unix.st_size in
@@ -114,8 +127,8 @@ let run_task ic oc settings taskinfo ?label task_init task_process task_done =
       let status, inputs = get_task_inputs ic oc !processed in
       let newly_processed, failed =
         List.fold_left process_input (!processed, []) inputs in
-        processed := newly_processed;
-        fin := status == P.Inputs_done && failed = []
+        processed := newly_processed @ failed;
+        fin := status == P.Task_input_done && failed = []
     done;
     task_done callback (intf_for_input "" 0);
     close_files !out_files;

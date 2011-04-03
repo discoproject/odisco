@@ -74,15 +74,15 @@ let norm_uri set uri =
                             authority = trans_auth }
       | Some _       -> uri
 
-type inputs_status =
-  | Inputs_more
-  | Inputs_done
+type task_input_status =
+  | Task_input_more
+  | Task_input_done
 
-let inputs_status_of_string s =
+let task_input_status_of_string s =
   match String.lowercase s with
-    | "more" -> Inputs_more
-    | "done" -> Inputs_done
-    | _      -> raise (E.Worker_failure (E.Unexpected_msg ("inputs ('" ^ s ^ "')")))
+    | "more" -> Task_input_more
+    | "done" -> Task_input_done
+    | _      -> raise (E.Worker_failure (E.Unexpected_msg ("task_input ('" ^ s ^ "')")))
 
 type input_status =
   | Input_ok
@@ -95,8 +95,9 @@ let input_status_of_string s =
     | _        -> raise (E.Worker_failure (E.Unexpected_msg ("inputs ('" ^ s ^ "')")))
 
 type input_id = int
-
-type input = input_id * input_status * string list
+type replica_id = int
+type replica = replica_id * string
+type input = input_id * input_status * replica list
 
 type master_msg =
   | M_ok
@@ -104,7 +105,9 @@ type master_msg =
   | M_ignore
   | M_settings of settings
   | M_taskinfo of taskinfo
-  | M_inputs of inputs_status * input list
+  | M_task_input of task_input_status * input list
+  | M_retry of replica list
+  | M_fail
 
 let master_msg_name = function
   | M_ok -> "ok"
@@ -112,7 +115,9 @@ let master_msg_name = function
   | M_ignore -> "ignore"
   | M_taskinfo _ -> "taskinfo"
   | M_settings _ -> "settings"
-  | M_inputs _ -> "inputs"
+  | M_task_input _ -> "task_input"
+  | M_retry _ -> "retry"
+  | M_fail -> "fail"
 
 let split s =
   let indx = (try Some (String.index s ' ') with _ -> None) in
@@ -139,18 +144,30 @@ let taskinfo_of b =
   let task_rootpath = "./" in
     { task_id; task_stage; task_name; task_host; task_rootpath }
 
-let inputs_of b =
+let task_input_of b =
   let msg = JC.to_list b in
-  let inps_status = inputs_status_of_string (JC.to_string (List.hd msg)) in
+  let status = task_input_status_of_string (JC.to_string (List.hd msg)) in
   let minps = JC.to_list (List.hd (List.tl msg)) in
   let mk_inp =
     (fun l ->
        let l = JC.to_list l in
        let inp_id = JC.to_int (List.hd l) in
        let inp_status = input_status_of_string (JC.to_string (List.nth l 1)) in
-       let inps = List.map JC.to_string (JC.to_list (List.nth l 2)) in
+       let replicas = JC.to_list (List.nth l 2) in
+       let inps = List.map (fun jlist ->
+                              let l = JC.to_list jlist in
+                              let rep_id = JC.to_int (List.hd l) in
+                              let rep_url = JC.to_string (List.nth l 1) in
+                                (rep_id, rep_url)
+                           ) replicas in
          inp_id, inp_status, inps) in
-    inps_status, List.map mk_inp minps
+    status, List.map mk_inp minps
+
+let retry_of b =
+  List.map (fun jlist ->
+              let l = JC.to_list jlist in
+                JC.to_int (List.hd l), JC.to_string (List.nth l 1)
+           ) (JC.to_list b)
 
 (* The master should respond within this time. *)
 let tIMEOUT = 5.0 *. 60.0 (* in seconds *)
@@ -202,8 +219,10 @@ let master_msg_of = function
   | "ignore", _ -> M_ignore
   | "set", j    -> M_settings (settings_of j)
   | "tsk", j    -> M_taskinfo (taskinfo_of j)
-  | "inp", j    -> (let status, inputs = inputs_of j in
-                      M_inputs (status, inputs))
+  | "inp", j    -> (let status, inputs = task_input_of j in
+                      M_task_input (status, inputs))
+  | "retry", j  -> M_retry (retry_of j)
+  | "fail", _   -> M_fail
   | m, j        -> raise (E.Worker_failure (E.Unknown_msg (m, j)))
 
 let next_master_msg ic =
@@ -242,8 +261,9 @@ type worker_msg =
   | W_pid of int
   | W_settings
   | W_taskinfo
-  | W_input of int list
-  | W_input_failure of int * string
+  | W_input_exclude of int list
+  | W_input_restrict of int list
+  | W_input_failure of int * int list
   | W_status of string
   | W_error of string
   | W_output of output
@@ -258,11 +278,15 @@ let prepare_msg = function
       "SET", J.to_string (J.String "")
   | W_taskinfo ->
       "TSK", J.to_string (J.String "")
-  | W_input _exclude_list ->
-      (* Placeholder until replica_id-based input protocol is completed on master. *)
-      "INP", J.to_string (J.String "")
-  | W_input_failure (_id, msg) ->
-      "DAT", J.to_string (J.String msg)
+  | W_input_exclude exclude_list ->
+      let exclude = J.Array (Array.of_list (List.map JC.of_int exclude_list)) in
+        "INP", J.to_string (J.Object [| "exclude", exclude |])
+  | W_input_restrict restrict_list ->
+      let restrict = J.Array (Array.of_list (List.map JC.of_int restrict_list)) in
+        "INP", J.to_string (J.Object [| "restrict", restrict |])
+  | W_input_failure (input_id, rep_ids) ->
+      let failed_replicas = Array.of_list (List.map JC.of_int rep_ids) in
+      "DAT", J.to_string (J.Array [| JC.of_int input_id; J.Array failed_replicas |])
   | W_status s ->
       "STA", J.to_string (J.String s)
   | W_error s ->
