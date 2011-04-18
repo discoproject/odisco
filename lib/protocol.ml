@@ -4,7 +4,7 @@ module JP = Json_parse
 module E = Errors
 module U = Unix
 
-let protocol_version = "0.1"
+let protocol_version = "1.0"
 
 type stage =
   | Map
@@ -172,44 +172,54 @@ let retry_of b =
 (* The master should respond within this time. *)
 let tIMEOUT = 5.0 *. 60.0 (* in seconds *)
 
+(* The format of messages going in both directions is:
+
+   <tag> 'SP' <payload-len> 'SP' <payload> '\n'
+
+   Both <tag> and <payload-len> are required to be less than 10
+   characters each.
+*)
 let bUFLEN = 1024
 let rec get_raw_master_msg ic =
+  let msg = ref None in
+  let process_prefix p =
+    let tag, rem = split p in
+    let len, rem = split rem in
+      try msg := Some (tag, int_of_string len); rem
+      with e ->
+        let es, bt = Printexc.to_string e, Printexc.get_backtrace () in
+          raise (E.Worker_failure (E.Protocol_parse_error (p, es ^ ":" ^ bt))) in
+
+  let payload, buf, ofs = Buffer.create bUFLEN, String.make bUFLEN '\000', ref 0 in
+  let return_msg () = (match !msg with
+                         | Some (tag, len) -> (if len < Buffer.length payload
+                                               then Some (tag, Buffer.sub payload 0 len)
+                                               else None)
+                         | None -> None) in
+
   let ifd = Unix.descr_of_in_channel ic in
+  let rec do_read () =
+    let len = Unix.read ifd buf !ofs (String.length buf - !ofs) in
+      match !msg with
+        | None ->
+            ofs := !ofs + len;
+            if !ofs >= 22 || String.rcontains_from buf !ofs '\n' then begin
+              Buffer.add_string payload (process_prefix buf);
+              ofs := 0
+            end
+        | Some (_, len) ->
+            assert (!ofs = 0);
+            Buffer.add_substring payload buf 0 len in
+
   let timeout = Unix.gettimeofday () +. tIMEOUT in
   let get_timeout () =
     let curtime = Unix.gettimeofday () in
       if curtime < timeout then timeout -. curtime
       else raise (E.Worker_failure (E.Protocol_error "timeout")) in
-  let msgbuf, buf, ofs = Buffer.create bUFLEN, String.make bUFLEN '\000', ref 0 in
-  let msg_info = ref None in
-  let process_prefix p =
-    let msg, len_str = split p in
-      try msg_info := Some (msg, int_of_string len_str)
-      with e ->
-        let es, bt = Printexc.to_string e, Printexc.get_backtrace () in
-          raise (E.Worker_failure (E.Protocol_parse_error (p, es ^ ":" ^ bt))) in
-  let msg_done () = (match !msg_info with
-                       | None -> false
-                       | Some (_, len) -> len < Buffer.length msgbuf) in
-  let return_val () = (match !msg_info with
-                         | Some (msg, len) -> msg, Buffer.sub msgbuf 0 len
-                         | None -> assert false) in
-  let rec do_read () =
-    let len = Unix.read ifd buf !ofs (String.length buf - !ofs) in
-      match !msg_info with
-        | None ->
-            (match (try Some (String.index_from buf !ofs '\n') with Not_found -> None) with
-               | Some nl -> (Buffer.add_substring msgbuf buf (nl+1) (!ofs + len - nl - 1);
-                             ofs := 0;
-                             process_prefix (String.sub buf 0 nl))
-               | None -> ofs := !ofs + len)
-        | Some (_, _msglen) ->
-            assert (!ofs = 0);
-            Buffer.add_substring msgbuf buf !ofs (!ofs + len) in
   let rec loop () =
     match Unix.select [ifd] [] [ifd] (get_timeout ()) with
       | _, _, [_] -> raise (E.Worker_failure (E.Protocol_error "socket error"))
-      | [_], _, _ -> do_read (); if msg_done () then return_val () else loop ()
+      | [_], _, _ -> do_read (); (match return_msg() with Some m -> m | None -> loop ())
       | _, _, _ -> loop ()
   in loop ()
 
@@ -262,9 +272,9 @@ type worker_msg =
   | W_settings
   | W_taskinfo
   | W_input_exclude of int list
-  | W_input_restrict of int list
+  | W_input_include of int list
   | W_input_failure of int * int list
-  | W_status of string
+  | W_message of string
   | W_error of string
   | W_output of output
   | W_done
@@ -273,22 +283,22 @@ let prepare_msg = function
   | W_version s ->
       "VSN", J.to_string (J.String s)
   | W_pid pid ->
-      "PID", J.to_string (J.String (string_of_int pid))
+      "PID", J.to_string (J.Int (Int64.of_int pid))
   | W_settings ->
       "SET", J.to_string (J.String "")
   | W_taskinfo ->
       "TSK", J.to_string (J.String "")
   | W_input_exclude exclude_list ->
       let exclude = J.Array (Array.of_list (List.map JC.of_int exclude_list)) in
-        "INP", J.to_string (J.Object [| "exclude", exclude |])
-  | W_input_restrict restrict_list ->
-      let restrict = J.Array (Array.of_list (List.map JC.of_int restrict_list)) in
-        "INP", J.to_string (J.Object [| "restrict", restrict |])
+        "INP", J.to_string (J.Array [| J.String "exclude"; exclude |])
+  | W_input_include include_list ->
+      let incl = J.Array (Array.of_list (List.map JC.of_int include_list)) in
+        "INP", J.to_string (J.Array [| J.String "include"; incl |])
   | W_input_failure (input_id, rep_ids) ->
-      let failed_replicas = Array.of_list (List.map JC.of_int rep_ids) in
-      "DAT", J.to_string (J.Array [| JC.of_int input_id; J.Array failed_replicas |])
-  | W_status s ->
-      "STA", J.to_string (J.String s)
+      let failed_replicas = J.Array (Array.of_list (List.map JC.of_int rep_ids)) in
+      "EREP", J.to_string (J.Array [| JC.of_int input_id; failed_replicas |])
+  | W_message s ->
+      "MSG", J.to_string (J.String s)
   | W_error s ->
       "ERR", J.to_string (J.String s)
   | W_output o ->
@@ -301,17 +311,10 @@ let prepare_msg = function
   | W_done ->
       "END", J.to_string (J.String "")
 
-let version = "00"
-
 let send_msg m oc =
-  let tm = U.localtime (U.time ()) in
-  let ts = (Printf.sprintf "%02d/%02d/%02d %02d:%02d:%02d"
-              (tm.U.tm_year - 100) tm.U.tm_mon tm.U.tm_mday
-              tm.U.tm_hour tm.U.tm_min tm.U.tm_sec) in
   let tag, payload = prepare_msg m in
     Utils.dbg "-> %s: %s" tag payload;
-    Printf.fprintf oc "**<%s:%s> %s \n%s\n<>**\n"
-      tag version ts payload
+    Printf.fprintf oc "%s %d %s\n" tag (String.length payload) payload
 
 (* synchronous msg exchange / rpc *)
 

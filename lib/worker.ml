@@ -38,7 +38,7 @@ let setup_task_env ic oc taskinfo =
     input_url;
     input_size;
     out_channel;
-    log = fun s -> expect_ok ic oc (P.W_status s);
+    log = fun s -> expect_ok ic oc (P.W_message s);
   } in
     Unix.mkdir task_rootpath 0o766;
     taskinfo.P.task_rootpath <- task_rootpath;
