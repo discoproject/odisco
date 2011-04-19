@@ -22,16 +22,15 @@ let string_of_stage = function
 
 (* master -> worker *)
 
-type settings = {
-  settings_port : int;
-  settings_put_port : int;
-}
-
 type taskinfo = {
   task_id : int;
   task_stage : stage;
   task_name : string;
   task_host : string;
+  task_port : int;
+  task_put_port : int;
+  task_disco_root : string;
+  task_ddfs_root : string;
   mutable task_rootpath : string;
 }
 
@@ -61,11 +60,11 @@ let scheme_of_uri uri =
     | Some "http"  -> Http
     | Some s       -> Other s
 
-let norm_uri set uri =
+let norm_uri ti uri =
   let trans_auth =
     match uri.Uri.authority with
       | None -> None
-      | Some a -> Some { a with Uri.port = Some set.settings_port }
+      | Some a -> Some { a with Uri.port = Some ti.task_port }
   in
     match uri.Uri.scheme with
       | None         -> { uri with Uri.scheme = Some "file" }
@@ -102,8 +101,6 @@ type input = input_id * input_status * replica list
 type master_msg =
   | M_ok
   | M_die
-  | M_ignore
-  | M_settings of settings
   | M_taskinfo of taskinfo
   | M_task_input of task_input_status * input list
   | M_retry of replica list
@@ -112,9 +109,7 @@ type master_msg =
 let master_msg_name = function
   | M_ok -> "ok"
   | M_die -> "die"
-  | M_ignore -> "ignore"
   | M_taskinfo _ -> "taskinfo"
-  | M_settings _ -> "settings"
   | M_task_input _ -> "task_input"
   | M_retry _ -> "retry"
   | M_fail -> "fail"
@@ -127,13 +122,6 @@ let split s =
           let slen = String.length s in
             (String.sub s 0 i), (String.sub s (i+1) (slen - i - 1))
 
-let settings_of b =
-  let table = JC.to_object_table b in
-  let lookup key = JC.object_field table key in
-  let settings_port = JC.to_int (lookup "port") in
-  let settings_put_port = JC.to_int (lookup "put_port") in
-    { settings_port; settings_put_port }
-
 let taskinfo_of b =
   let table = JC.to_object_table b in
   let lookup key = JC.object_field table key in
@@ -141,8 +129,14 @@ let taskinfo_of b =
   let task_stage = stage_of_string (JC.to_string (lookup "mode")) in
   let task_name = JC.to_string (lookup "jobname") in
   let task_host = JC.to_string (lookup "host") in
+  let task_port = JC.to_int (lookup "port") in
+  let task_put_port = JC.to_int (lookup "put_port") in
+  let task_disco_root = JC.to_string (lookup "disco_data") in
+  let task_ddfs_root = JC.to_string (lookup "ddfs_data") in
   let task_rootpath = "./" in
-    { task_id; task_stage; task_name; task_host; task_rootpath }
+    { task_id; task_stage; task_name; task_host;
+      task_port; task_put_port; task_disco_root; task_ddfs_root;
+      task_rootpath }
 
 let task_input_of b =
   let msg = JC.to_list b in
@@ -224,22 +218,20 @@ let rec get_raw_master_msg ic =
   in loop ()
 
 let master_msg_of = function
-  | "ok", _     -> M_ok
-  | "die", _    -> M_die
-  | "ignore", _ -> M_ignore
-  | "set", j    -> M_settings (settings_of j)
-  | "tsk", j    -> M_taskinfo (taskinfo_of j)
-  | "inp", j    -> (let status, inputs = task_input_of j in
-                      M_task_input (status, inputs))
-  | "retry", j  -> M_retry (retry_of j)
-  | "fail", _   -> M_fail
+  | "OK", _     -> M_ok
+  | "DIE", _    -> M_die
+  | "TASK", j   -> M_taskinfo (taskinfo_of j)
+  | "INPUT", j  -> (let status, inputs = task_input_of j in
+                        M_task_input (status, inputs))
+  | "RETRY", j  -> M_retry (retry_of j)
+  | "FAIL", _   -> M_fail
   | m, j        -> raise (E.Worker_failure (E.Unknown_msg (m, j)))
 
 let next_master_msg ic =
   let msg, payload = get_raw_master_msg ic in
     Utils.dbg "<- %s: %s" msg payload;
     try
-      master_msg_of (String.lowercase msg, JP.of_string payload)
+      master_msg_of (msg, JP.of_string payload)
     with
       | JP.Parse_error e ->
           raise (E.Worker_failure (E.Protocol_parse_error (payload, JP.string_of_error e)))
@@ -269,13 +261,13 @@ type output = {
 type worker_msg =
   | W_version of string
   | W_pid of int
-  | W_settings
   | W_taskinfo
   | W_input_exclude of int list
   | W_input_include of int list
   | W_input_failure of int * int list
   | W_message of string
   | W_error of string
+  | W_fatal of string
   | W_output of output
   | W_done
 
@@ -284,30 +276,30 @@ let prepare_msg = function
       "VSN", J.to_string (J.String s)
   | W_pid pid ->
       "PID", J.to_string (J.Int (Int64.of_int pid))
-  | W_settings ->
-      "SET", J.to_string (J.String "")
   | W_taskinfo ->
-      "TSK", J.to_string (J.String "")
+      "TASK", J.to_string (J.String "")
   | W_input_exclude exclude_list ->
       let exclude = J.Array (Array.of_list (List.map JC.of_int exclude_list)) in
-        "INP", J.to_string (J.Array [| J.String "exclude"; exclude |])
+        "INPUT", J.to_string (J.Array [| J.String "exclude"; exclude |])
   | W_input_include include_list ->
       let incl = J.Array (Array.of_list (List.map JC.of_int include_list)) in
-        "INP", J.to_string (J.Array [| J.String "include"; incl |])
+        "INPUT", J.to_string (J.Array [| J.String "include"; incl |])
   | W_input_failure (input_id, rep_ids) ->
       let failed_replicas = J.Array (Array.of_list (List.map JC.of_int rep_ids)) in
-      "EREP", J.to_string (J.Array [| JC.of_int input_id; failed_replicas |])
+      "INPUT_ERR", J.to_string (J.Array [| JC.of_int input_id; failed_replicas |])
   | W_message s ->
       "MSG", J.to_string (J.String s)
   | W_error s ->
-      "ERR", J.to_string (J.String s)
+      "ERROR", J.to_string (J.String s)
+  | W_fatal s ->
+      "FATAL", J.to_string (J.String s)
   | W_output o ->
       let list = [J.String o.filename;
                   J.String (string_of_output_type o.otype);
                  ] @ (match o.label with
                         | None -> []
                         | Some l -> [J.String l]) in
-        "OUT", J.to_string (J.Array (Array.of_list list))
+        "OUTPUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
       "END", J.to_string (J.String "")
 

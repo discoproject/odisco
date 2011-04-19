@@ -62,8 +62,8 @@ let urls_of_replicas replicas =
 let ids_of_replicas replicas =
   List.map fst replicas
 
-let resolve_input settings taskinfo ?label (id, _status, replicas) =
-  let norm_uri = (fun uri -> P.norm_uri settings uri) in
+let resolve_input taskinfo ?label (id, _status, replicas) =
+  let norm_uri = (fun uri -> P.norm_uri taskinfo uri) in
     match List.map Uri.of_string (urls_of_replicas replicas) with
       | [] ->
           []
@@ -88,12 +88,12 @@ let get_task_inputs ic oc excl =
     | P.M_task_input (status, inputs) -> status, inputs
     | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
-let run_task ic oc settings taskinfo ?label task_init task_process task_done =
+let run_task ic oc taskinfo ?label task_init task_process task_done =
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" 0) in
   let fail_on_input_error = false in
   let rec process_input (processed, failed) ((id, _st, replicas) as input) =
-    match resolve_input settings taskinfo ?label input with
+    match resolve_input taskinfo ?label input with
       | _ when List.mem id processed ->
           processed, failed
       | [] ->
@@ -134,26 +134,22 @@ let run_task ic oc settings taskinfo ?label task_init task_process task_done =
     close_files !out_files;
     send_output_msg ic oc !out_files
 
-let run_map ic oc settings taskinfo task =
+let run_map ic oc taskinfo task =
   let module Task = (val task : Task.TASK) in
   let task_init, task_process, task_done = Task.map_init, Task.map, Task.map_done in
-    run_task ic oc settings taskinfo task_init task_process task_done
+    run_task ic oc taskinfo task_init task_process task_done
 
-let run_reduce ic oc settings taskinfo task =
+let run_reduce ic oc taskinfo task =
   let module Task = (val task : Task.TASK) in
   let task_init, task_process, task_done = Task.reduce_init, Task.reduce, Task.reduce_done in
-    run_task ic oc settings taskinfo task_init task_process task_done
+    run_task ic oc taskinfo task_init task_process task_done
 
-let run ic oc settings taskinfo task =
+let run ic oc taskinfo task =
   U.dbg "running task %s (%s %d)" taskinfo.P.task_name
     (P.string_of_stage taskinfo.P.task_stage) taskinfo.P.task_id;
   match taskinfo.P.task_stage with
-    | P.Map -> run_map ic oc settings taskinfo task
-    | P.Reduce -> run_reduce ic oc settings taskinfo task
-
-let get_settings = function
-  | P.M_settings set -> set
-  | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
+    | P.Map -> run_map ic oc taskinfo task
+    | P.Reduce -> run_reduce ic oc taskinfo task
 
 let get_taskinfo = function
   | P.M_taskinfo ti -> ti
@@ -162,14 +158,13 @@ let get_taskinfo = function
 let start_protocol ic oc task =
   expect_ok ic oc (P.W_version P.protocol_version);
   expect_ok ic oc (P.W_pid (Unix.getpid ()));
-  let settings = get_settings (P.send_request P.W_settings ic oc) in
   let taskinfo = get_taskinfo (P.send_request P.W_taskinfo ic oc) in
-    run ic oc settings taskinfo task
+    run ic oc taskinfo task
 
 let error_wrap ic oc f =
   let err s =
     U.dbg "error: %s" s;
-    expect_ok ic oc (P.W_error s)
+    expect_ok ic oc (P.W_fatal s)
   in try
       f ();
       expect_ok ic oc P.W_done
