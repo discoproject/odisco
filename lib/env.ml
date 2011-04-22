@@ -60,11 +60,40 @@ type download_result =
   | Download_file of File.t
   | Download_error of E.error
 
+let dISCO_PATH = "/disco/"
+let dDFS_PATH  = "/ddfs/"
+let is_known_path = function
+  | None -> false
+  | Some p -> U.is_prefix p dISCO_PATH || U.is_prefix p dDFS_PATH
+
+let find_local replicas taskinfo =
+  let localhost = taskinfo.P.task_host in
+  let locals = List.filter (fun u ->
+                              (match u.Uri.authority with
+                                 | None -> false
+                                 | Some a -> a.Uri.host = localhost
+                              ) && (is_known_path u.Uri.path)
+                           ) replicas in
+    match locals with
+      | [] -> None
+      | l :: _ -> Some l
+
+let to_local_file replica taskinfo =
+  let uri_path = U.unopt replica.Uri.path in
+    if U.is_prefix uri_path dISCO_PATH then
+      let p = U.strip_prefix uri_path dISCO_PATH in
+        Filename.concat taskinfo.P.task_disco_root p
+    else
+      let p = U.strip_prefix uri_path dDFS_PATH in
+        Filename.concat taskinfo.P.task_ddfs_root p
+
 let download replicas taskinfo =
-  match replicas with
-    | [] ->
+  match (find_local replicas taskinfo), replicas with
+    | Some l, _ ->
+        Download_file (File.open_existing (to_local_file l taskinfo))
+    | _, [] ->
         assert false
-    | uri :: _ ->
+    | _, uri :: _ ->
         (match uri.Uri.scheme, uri.Uri.path with
            | Some "file", Some p ->
                Download_file (File.open_existing p)

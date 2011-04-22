@@ -10,7 +10,7 @@ let mapopt f = function
   | Some v -> Some (f v)
   | None -> None
 
-(* split strings at a seperator character *)
+(* split strings at a separator character *)
 
 let string_split s c =
   let slen = String.length s in
@@ -23,6 +23,19 @@ let string_split s c =
           with Not_found ->
             iter slen (String.sub s cursor (slen - cursor) :: acc))
   in iter 0 []
+
+(* prefix handling *)
+let is_prefix str p =
+  let plen = String.length p in
+  let rec prefix_helper ofs =
+    if str.[ofs] <> p.[ofs] then false
+    else if ofs = 0 then true else prefix_helper (ofs - 1)
+  in
+    if String.length str < plen then false else prefix_helper (plen - 1)
+
+let strip_prefix str p =
+  let plen = String.length p in
+    String.sub str plen ((String.length str) - plen)
 
 (* whitespace handling and stripping *)
 
