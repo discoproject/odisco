@@ -27,7 +27,7 @@ type taskinfo = {
   task_stage : stage;
   task_name : string;
   task_host : string;
-  task_port : int;
+  task_disco_port : int;
   task_put_port : int;
   task_disco_root : string;
   task_ddfs_root : string;
@@ -64,7 +64,7 @@ let norm_uri ti uri =
   let trans_auth =
     match uri.Uri.authority with
       | None -> None
-      | Some a -> Some { a with Uri.port = Some ti.task_port }
+      | Some a -> Some { a with Uri.port = Some ti.task_disco_port }
   in
     match uri.Uri.scheme with
       | None         -> { uri with Uri.scheme = Some "file" }
@@ -129,13 +129,13 @@ let taskinfo_of b =
   let task_stage = stage_of_string (JC.to_string (lookup "mode")) in
   let task_name = JC.to_string (lookup "jobname") in
   let task_host = JC.to_string (lookup "host") in
-  let task_port = JC.to_int (lookup "port") in
+  let task_disco_port = JC.to_int (lookup "disco_port") in
   let task_put_port = JC.to_int (lookup "put_port") in
   let task_disco_root = JC.to_string (lookup "disco_data") in
   let task_ddfs_root = JC.to_string (lookup "ddfs_data") in
   let task_rootpath = "./" in
     { task_id; task_stage; task_name; task_host;
-      task_port; task_put_port; task_disco_root; task_ddfs_root;
+      task_disco_port; task_put_port; task_disco_root; task_ddfs_root;
       task_rootpath }
 
 let task_input_of b =
