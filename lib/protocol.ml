@@ -259,8 +259,7 @@ type output = {
 }
 
 type worker_msg =
-  | W_version of string
-  | W_pid of int
+  | W_worker of (* version *) string * (* pid *) int
   | W_taskinfo
   | W_input_exclude of int list
   | W_input_include of int list
@@ -272,10 +271,9 @@ type worker_msg =
   | W_done
 
 let prepare_msg = function
-  | W_version s ->
-      "VSN", J.to_string (J.String s)
-  | W_pid pid ->
-      "PID", J.to_string (J.Int (Int64.of_int pid))
+  | W_worker (v, pid) ->
+      let p = Int64.of_int pid in
+        "WORKER", J.to_string (J.Object [| "version", J.String v; "pid", J.Int p |])
   | W_taskinfo ->
       "TASK", J.to_string (J.String "")
   | W_input_exclude exclude_list ->
@@ -301,7 +299,7 @@ let prepare_msg = function
                         | Some l -> [J.String l]) in
         "OUTPUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
-      "END", J.to_string (J.String "")
+      "DONE", J.to_string (J.String "")
 
 let send_msg m oc =
   let tag, payload = prepare_msg m in

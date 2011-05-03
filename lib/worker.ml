@@ -156,8 +156,7 @@ let get_taskinfo = function
   | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
 let start_protocol ic oc task =
-  expect_ok ic oc (P.W_version P.protocol_version);
-  expect_ok ic oc (P.W_pid (Unix.getpid ()));
+  expect_ok ic oc (P.W_worker (P.protocol_version, Unix.getpid ()));
   let taskinfo = get_taskinfo (P.send_request P.W_taskinfo ic oc) in
     run ic oc taskinfo task
 
