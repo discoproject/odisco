@@ -36,8 +36,17 @@ end
 let filename taskinfo name =
   Filename.concat taskinfo.P.task_rootpath name
 
-let local_filename taskinfo url_path =
-  Filename.concat taskinfo.P.task_rootpath (Filename.basename url_path)
+let local_filename taskinfo uri =
+  let basename =
+    match uri.Uri.path, uri.Uri.authority with
+      | None, None   | Some "", None ->
+          "remote_file"
+      | None, Some a | Some "", Some a ->
+          a.Uri.host
+      | Some p, _ ->
+          Filename.basename p
+  in
+    Filename.concat taskinfo.P.task_rootpath basename
 
 let download_urls replicas f =
   U.dbg "Downloading %s" (String.concat " " replicas);
@@ -97,8 +106,8 @@ let download replicas taskinfo =
         (match uri.Uri.scheme, uri.Uri.path with
            | Some "file", Some p ->
                Download_file (File.open_existing p)
-           | Some "http", Some p ->
-               let f = File.open_new ~delete_on_close:true (local_filename taskinfo p)
+           | Some "http", _ ->
+               let f = File.open_new ~delete_on_close:true (local_filename taskinfo uri)
                in (match download_urls (List.map Uri.to_string replicas) f with
                      | Some err -> Download_error err
                      | None -> Download_file f)
