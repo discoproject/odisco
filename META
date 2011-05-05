@@ -1,0 +1,8 @@
+description = "OCaml library for Disco map-reduce framework"
+version = "0.0.1"
+
+package "disco" (
+  requires = "unix,camlzip,sonet.httplib,sonet.jsonlib"
+  archive(byte) = "disco.cma"
+  archive(native) = "disco.cmxa"
+)
