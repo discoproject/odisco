@@ -1,4 +1,4 @@
-description = "OCaml library for Disco map-reduce framework"
+description = "OCaml library for the Disco map-reduce framework"
 version = "0.0.1"
 
 package "disco" (

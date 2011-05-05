@@ -13,7 +13,7 @@ The library has the following dependencies:
 
 . libzip-ocaml-dev (Debian/Ubuntu) / ocaml-zip (Fedora) / godi-zip (Godi) / camlzip (Gentoo, source)
 
-. Disco 0.4 or later
+. Disco 0.4 or later (http://discoproject.org)
 
 . sonet
 
@@ -52,11 +52,12 @@ Using:
 
 . Submit your compiled executable to Disco using 'disco job'.
 
-  For example, to do a word count on the /etc/hosts file:
+  For example, to do a word count on a large text file:
 
   $ make -C tests
-  $ ddfs push hosts /etc/hosts
-  $ ddfs blobs hosts \
+  $ wget -O /tmp/bigfile.txt http://discoproject.org/media/text/bigfile.txt
+  $ ddfs push text /tmp/bigfile.txt
+  $ ddfs blobs text \
     | disco job -m -r -p ocamlwc tests/test_install_task \
-    | xargs disco results \
+    | xargs disco wait \
     | xargs ddfs cat
