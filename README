@@ -1,35 +1,62 @@
-This is a library for implementing Ocaml jobs for the Disco map-reduce framework.
+ODisco is a library for implementing Disco map-reduce jobs in OCaml.
+It implements the Disco worker protocol, and provides the plumbing to
+connect user-specified computations to Disco data sources and results.
 
 Prerequisites:
 --------------
 
-. ocaml 3.12.0, ocamlfind/findlib
+The library has the following dependencies:
 
-. libzip-ocaml-dev (Debian/Ubuntu) / godi-zip (Godi) / camlzip (source)
+. ocaml 3.12.0 or later
+
+. ocaml-findlib (Debian/Ubuntu/Fedora) / godi-findlib (Godi) / findlib (Gentoo, source)
+
+. libzip-ocaml-dev (Debian/Ubuntu) / ocaml-zip (Fedora) / godi-zip (Godi) / camlzip (Gentoo, source)
+
+. Disco 0.4 or later
 
 . sonet
-   $ git clone git://github.com/pmundkur/sonet.git
-   $ cd sonet && make install
 
-   To uninstall:
-   $ cd sonet && make uninstall
+  This is a simple asynchronous networking library for OCaml.
+
+  $ git clone git://github.com/pmundkur/sonet.git
+  $ cd sonet && make install
+
+  To uninstall:
+  $ cd sonet && make uninstall
 
 Building:
 ---------
 
  $ make
 
+Installing:
+-----------
+
+ $ make install
+
+Uninstalling:
+-------------
+
+ $ make uninstall
+
 Using:
 ------
 
-. Write a module implementing the lib/task:TASK interface, and pass
+. Write a module implementing the lib/task.ml:TASK interface.  Pass
   this module to Worker.start in your main program.  See
-  tests/test_task.ml for an example.
+  tests/test_install_task.ml for an example.
 
-. Use the bin/discojob.py program to submit your compiled executable
-  to Disco.
+. Build it and link to the ODisco library.  See tests/Makefile for an
+  example build.
 
-Status:
--------
+. Submit your compiled executable to Disco using 'disco job'.
 
-Currently under heavy development.
+  For example, to do a word count on the /etc/hosts file:
+
+  $ make -C tests
+  $ ddfs push hosts /etc/hosts
+  $ ddfs blobs hosts \
+    | disco job -m -r -p ocamlwc tests/test_install_task \
+    | xargs disco results \
+    | xargs ddfs cat
