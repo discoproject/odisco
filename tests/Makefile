@@ -1,7 +1,7 @@
 # This Makefile is used only for testing the installation.
 
-OCAMLC = ocamlfind ocamlc -linkpkg -verbose -package sonet.httplib -package odisco.disco
-OCAMLOPT = ocamlfind ocamlopt -linkpkg -verbose -package sonet.httplib -package odisco.disco
+OCAMLC = ocamlfind ocamlc -linkpkg -verbose -package odisco.disco
+OCAMLOPT = ocamlfind ocamlopt -linkpkg -verbose -package odisco.disco
 
 .PHONY: all byte native clean
 
