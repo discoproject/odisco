@@ -47,6 +47,9 @@ Using:
   this module to Worker.start in your main program.  See
   tests/test_install_task.ml for an example.
 
+  Read the documentation in lib/task.mli and lib/worker.mli for more
+  details.
+
 . Build it and link to the ODisco library.  See tests/Makefile for an
   example build.
 
