@@ -1,4 +1,4 @@
-(** The interface to the computation performed an ODisco worker is
+(** The interface to the computation performed by an ODisco worker is
     described by this module. *)
 
 (** The ODisco library implements the Disco worker protocol, through
@@ -15,35 +15,39 @@
     this would be like a Unix program.  The term {i Disco task}, on
     the other hand, will denote a specific running instance of the
     ODisco worker, that performs a specific computation (e.g. a map
-    task or a reduce task).  The Unix counterpart is a process.
+    task or a reduce task).  The Unix counterpart is a process.  A
+    collection of Disco map and reduce tasks implement a {i Disco
+    job}.
 
-    Once ODisco is given control, it initiates the Disco worker
-    protocol to Disco, and retrieves the inputs one-by-one for the
-    Disco task.  Before the first input is passed to the ODisco
-    worker, the appropriate init callback for the task is called,
-    e.g. either [map_init] or [reduce_init].  Thereafter, after each
-    input is retrieved, the appropiate processing function for the
-    task is called, e.g. either [map] or [reduce].  After the last
+    Once ODisco is given control (via {!Worker.start}), it initiates
+    the Disco worker protocol to Disco, and retrieves the inputs
+    one-by-one for the Disco task.  Before the first input is passed
+    to the ODisco worker, the appropriate init callback for the task
+    is called, i.e. either [map_init] or [reduce_init].  Then, after
+    each input is retrieved, the appropiate processing function for
+    the task is called, i.e. either [map] or [reduce].  After the last
     input has been processed, the appropriate finalize callback for
-    the task is called, e.g. either [map_done] or [reduce_done].
+    the task is called, i.e. either [map_done] or [reduce_done].
     After the finalize callback returns to ODisco, ODisco terminates
     the worker protocol, and ends the task.
 
-    Each callback will receive a [disco] argument, which will contain
-    some information for the current task, as well as functions
-    through which the worker can write some task output or log some
-    messages to Disco.
+    Each callback receives a [disco] argument, which will contain some
+    information for the current task, as well as functions through
+    which the worker can write some task output or log some messages
+    to Disco.
 
     When generating output, the worker can choose to optionally label
     the output channel with an integer label; this can be used to
     implement partitioned output.  Please see the Disco documentation
-    on how partitioning is used in the Disco processing pipeline.
+    on how partitioning is used in @see
+    <http://discoproject.org/doc/howto/dataflow.html> the Disco
+    processing pipeline.
 
     If any exceptions are thrown in the worker code, ODisco catches
     the exception, and generates the appropriate error message to
     Disco, and terminates the task with an error. *)
 
-(** The argument to every callback in the [Task] implementation,
+(** The argument to every callback in the {!Task.TASK} implementation,
     containing task information as well functions to generate output
     or log messages. *)
 type disco = {
