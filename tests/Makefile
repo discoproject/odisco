@@ -2,16 +2,17 @@
 
 OCAMLC = ocamlfind ocamlc -linkpkg -verbose -package odisco.disco
 OCAMLOPT = ocamlfind ocamlopt -linkpkg -verbose -package odisco.disco
+TEST_TASK = word_count
 
 .PHONY: all byte native clean
 
 all: byte native
 
 byte:
-	$(OCAMLC) -o test_install_task test_install_task.ml
+	$(OCAMLC) -o $(TEST_TASK) $(TEST_TASK).ml
 
 native:
-	$(OCAMLOPT) -o test_install_task.opt test_install_task.ml
+	$(OCAMLOPT) -o $(TEST_TASK).opt $(TEST_TASK).ml
 
 clean:
-	-rm -f test_install_task{,.cmi,.cmo,.cmx,.o,.opt}
+	-rm -f $(TEST_TASK){,.cmi,.cmo,.cmx,.o,.opt}
