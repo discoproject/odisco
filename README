@@ -20,7 +20,7 @@ The library has the following dependencies:
   This is a simple asynchronous networking library for OCaml.
 
   $ git clone git://github.com/pmundkur/sonet.git
-  $ cd sonet && make install
+  $ cd sonet && make && make install
 
   To uninstall:
   $ cd sonet && make uninstall

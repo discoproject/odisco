@@ -16,7 +16,7 @@ clean:
 	ocamlbuild -clean
 	make -C tests clean
 
-install: all
+install:
 	ocamlfind install $(LIB) META $(LIB_INSTALLS)
 
 uninstall:
