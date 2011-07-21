@@ -32,15 +32,18 @@ let setup_task_env ic oc taskinfo =
                          (P.string_of_stage taskinfo.P.task_stage)
                          taskinfo.P.task_id
                          (Unix.time ())) in
+  let temp_dir = Filename.concat task_rootpath "tmp" in
   let interface_maker input_url input_size = {
     Task.taskname = taskinfo.P.task_name;
     hostname = taskinfo.P.task_host;
     input_url;
     input_size;
     out_channel;
-    log = fun s -> expect_ok ic oc (P.W_message s);
+    log = (fun s -> expect_ok ic oc (P.W_message s));
+    temp_dir;
   } in
     Unix.mkdir task_rootpath 0o766;
+    Unix.mkdir temp_dir 0o766;
     taskinfo.P.task_rootpath <- task_rootpath;
     out_files, interface_maker
 

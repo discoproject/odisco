@@ -5,6 +5,7 @@ type disco = {
   input_size : int;
   out_channel : label:int option -> out_channel;
   log : string -> unit;
+  temp_dir : string;
 }
 
 module type TASK = sig

@@ -59,6 +59,8 @@ type disco = {
 
   out_channel : label:int option -> out_channel; (** the output channel selector *)
   log : string -> unit; (** a function to log a message to Disco *)
+
+  temp_dir : string; (** a directory in which to create temporary files *)
 }
 
 (** This signature specifies the callbacks that ODisco invokes for the
