@@ -104,6 +104,7 @@ let get_task_inputs ic oc excl =
     | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
 let run_task ic oc taskinfo ?label task_init task_process task_done =
+  let in_files = ref ([] : N.File.t list) in
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" "" 0) in
   let fail_on_input_error = false in
@@ -113,7 +114,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
       U.dbg "Input file name %s: length %d" (N.File.name fi) sz;
       assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
       task_process callback (intf_for_input (Uri.to_string url) (N.File.name fi) sz) (Unix.in_channel_of_descr fd);
-      N.File.close fi in
+      in_files := fi :: !in_files in
   let rec process_input (processed, failed) ((id, _st, replicas) as input) =
     if List.mem id processed then processed, failed
     else begin
@@ -171,6 +172,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
         fin := status == P.Task_input_done && failed = []
     done;
     task_done callback (intf_for_input "" "" 0);
+    List.iter N.File.close !in_files;
     close_files !out_files;
     send_output_msg ic oc !out_files
 
