@@ -48,6 +48,10 @@ let local_filename taskinfo uri =
   in
     Filename.concat taskinfo.P.task_rootpath basename
 
+type ('a, 'b) lr =
+  | Left of 'a
+  | Right of 'b
+
 let download_urls replicas f =
   U.dbg "Downloading %s" (String.concat " " replicas);
   match C.request [(Http.Request_header.Get, C.FileRecv (replicas, f.File.fd))] with
@@ -56,17 +60,17 @@ let download_urls replicas f =
         assert false
     | [{ C.response = None; C.error = Some e }] ->
         File.close f;
-        Some (E.Input_failure e)
+        Left (E.Input_failure e)
     | [{ C.response = Some resp; C.url = url }] ->
         let status = resp.Http.Response.response.Http.Response_header.status_code in
-          if status = 200 then None
+          if status = 200 then Right (Uri.of_string url)
           else begin
             File.close f;
-            Some (E.Input_response_failure (url, status))
+            Left (E.Input_response_failure (url, status))
           end
 
 type download_result =
-  | Download_file of File.t
+  | Download_file of File.t * Uri.t
   | Download_error of E.error
 
 let dISCO_PATH = "/disco/"
@@ -99,18 +103,18 @@ let to_local_file replica taskinfo =
 let download replicas taskinfo =
   match (find_local replicas taskinfo), replicas with
     | Some l, _ ->
-        Download_file (File.open_existing (to_local_file l taskinfo))
+        Download_file ((File.open_existing (to_local_file l taskinfo)), l)
     | _, [] ->
         assert false
     | _, uri :: _ ->
         (match uri.Uri.scheme, uri.Uri.path with
            | Some "file", Some p ->
-               Download_file (File.open_existing p)
+               Download_file ((File.open_existing p), uri)
            | Some "http", _ ->
                let f = File.open_new ~delete_on_close:true (local_filename taskinfo uri)
                in (match download_urls (List.map Uri.to_string replicas) f with
-                     | Some err -> Download_error err
-                     | None -> Download_file f)
+                     | Left err -> Download_error err
+                     | Right u -> Download_file (f, u))
            | _ ->
                Download_error (E.Invalid_input (Uri.to_string uri)))
 

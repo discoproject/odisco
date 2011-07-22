@@ -119,7 +119,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
       match resolve_input taskinfo ?label input with
         | Inp_splits [] | Inp_replicas [] ->
             (id :: processed), failed
-        | Inp_replicas ((h :: _) as replica_urls) ->
+        | Inp_replicas replica_urls ->
             (match N.download replica_urls taskinfo with
                | N.Download_error err ->
                    U.dbg "Download error on input %d: %s" id (E.string_of_error err);
@@ -132,9 +132,8 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
                           process_input (processed, failed) (id, _st, new_replicas)
                       | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
                    );
-               | N.Download_file fi ->
-                   (* TODO: FIXME: h may not be the actual input url *)
-                   process_download fi h;
+               | N.Download_file (fi, u) ->
+                   process_download fi u;
                    (id :: processed), failed
             )
         | Inp_splits splits ->
@@ -146,7 +145,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
                                   only throw an Input_failure and fail this
                                   task. *)
                                raise (E.Worker_failure err)
-                           | N.Download_file fi ->
+                           | N.Download_file (fi, _) ->
                                process_download fi split
                       ) splits;
             (id :: processed), failed
