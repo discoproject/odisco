@@ -55,6 +55,7 @@ type disco = {
   hostname : string;    (** the host on which the task is running *)
 
   input_url : string;   (** the url corresponding to the current input *)
+  input_path : string;  (** the relative path to the file containing the current input *)
   input_size : int;     (** the size of the current input in bytes *)
 
   out_channel : label:int option -> out_channel; (** the output channel selector *)

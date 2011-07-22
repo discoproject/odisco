@@ -2,6 +2,7 @@ type disco = {
   taskname : string;
   hostname : string;
   input_url : string;
+  input_path : string;
   input_size : int;
   out_channel : label:int option -> out_channel;
   log : string -> unit;
