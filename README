@@ -61,6 +61,6 @@ Using:
   $ wget -O /tmp/bigfile.txt http://discoproject.org/media/text/bigfile.txt
   $ ddfs push text /tmp/bigfile.txt
   $ ddfs blobs text \
-    | disco job -m -r -p ocamlwc tests/test_install_task \
+    | disco job -m -r -p ocamlwc tests/word_count.opt \
     | xargs disco wait \
     | xargs ddfs cat
