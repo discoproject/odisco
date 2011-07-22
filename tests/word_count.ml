@@ -99,7 +99,7 @@ module TestTask = struct
         | 0 ->
             Unix.execvpe "sort" sort_args sort_env
         | child ->
-             (let pid, stat = Unix.waitpid [ Unix.WUNTRACED ] child in
+             (let _, stat = Unix.waitpid [ Unix.WUNTRACED ] child in
                 match stat with
                   | Unix.WEXITED 0 -> ()
                   | Unix.WEXITED code ->
