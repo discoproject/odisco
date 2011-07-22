@@ -65,23 +65,34 @@ let urls_of_replicas replicas =
 let ids_of_replicas replicas =
   List.map fst replicas
 
+type resolved_input =
+  | Inp_replicas of Uri.t list
+  | Inp_splits of Uri.t list
+  | Inp_error of E.error
+
 let resolve_input taskinfo ?label (id, _status, replicas) =
   let norm_uri = (fun uri -> P.norm_uri taskinfo uri) in
     match List.map Uri.of_string (urls_of_replicas replicas) with
       | [] ->
-          []
+          Inp_replicas []
       | (h :: _) as replica_urls ->
           (match P.scheme_of_uri h, label with
              | P.Dir, Some l ->
+                 (* TODO: Currently, read_index->get_payload just directly
+                    throws an Input_failure on error, which kills this task (but
+                    not the job).  It would be more optimal to have it return
+                    any error in retrieving the index and report it as a normal
+                    input error, so that the master can re-schedule the
+                    generating task. *)
                  let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
                  let selected = List.assoc l index in
-                   [norm_uri (Uri.of_string selected)]
+                   Inp_splits [norm_uri (Uri.of_string selected)]
              | P.Dir, None ->
                  let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
                  let selected = List.map snd index in
-                   List.map (fun s -> norm_uri (Uri.of_string s)) selected
+                   Inp_splits (List.map (fun s -> norm_uri (Uri.of_string s)) selected)
              | P.Disco, _ | P.Http, _ ->
-                 List.map norm_uri replica_urls
+                 Inp_replicas (List.map norm_uri replica_urls)
              | s, _ ->
                  raise (E.Worker_failure (E.Unsupported_input_scheme (id, (P.string_of_scheme s))))
           )
@@ -95,35 +106,61 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" 0) in
   let fail_on_input_error = false in
+  let process_download fi url =
+    let fd = N.File.fd fi in
+    let sz = (Unix.fstat fd).Unix.st_size in
+      U.dbg "Input file name %s: length %d" (N.File.name fi) sz;
+      assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
+      task_process callback (intf_for_input (Uri.to_string url) sz) (Unix.in_channel_of_descr fd);
+      N.File.close fi in
   let rec process_input (processed, failed) ((id, _st, replicas) as input) =
-    match resolve_input taskinfo ?label input with
-      | _ when List.mem id processed ->
-          processed, failed
-      | [] ->
-          (id :: processed), failed
-      | (h :: _) as replica_urls ->
-          (match N.download replica_urls taskinfo with
-             | N.Download_error err ->
-                 U.dbg "Download error on input %d: %s" id (E.string_of_error err);
-                 (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
-                    | P.M_ok
-                    | P.M_fail ->
-                        if fail_on_input_error then raise (E.Worker_failure err)
-                        else processed, (id :: failed)
-                    | P.M_retry new_replicas ->
-                        process_input (processed, failed) (id, _st, new_replicas)
-                    | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
-                 );
-             | N.Download_file fi ->
-                 let fd = N.File.fd fi in
-                 let sz = (Unix.fstat fd).Unix.st_size in
-                   U.dbg "Input file name %s: length %d" (N.File.name fi) sz;
-                   assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
+    if List.mem id processed then processed, failed
+    else begin
+      match resolve_input taskinfo ?label input with
+        | Inp_splits [] | Inp_replicas [] ->
+            (id :: processed), failed
+        | Inp_replicas ((h :: _) as replica_urls) ->
+            (match N.download replica_urls taskinfo with
+               | N.Download_error err ->
+                   U.dbg "Download error on input %d: %s" id (E.string_of_error err);
+                   (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
+                      | P.M_ok
+                      | P.M_fail ->
+                          if fail_on_input_error then raise (E.Worker_failure err)
+                          else processed, (id :: failed)
+                      | P.M_retry new_replicas ->
+                          process_input (processed, failed) (id, _st, new_replicas)
+                      | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
+                   );
+               | N.Download_file fi ->
                    (* TODO: FIXME: h may not be the actual input url *)
-                   task_process callback (intf_for_input (Uri.to_string h) sz) (Unix.in_channel_of_descr fd);
-                   N.File.close fi;
+                   process_download fi h;
                    (id :: processed), failed
-          ) in
+            )
+        | Inp_splits splits ->
+            List.iter (fun split ->
+                         match N.download [split] taskinfo with
+                           | N.Download_error err ->
+                               (* Since we may have partially consumed this
+                                  input, we can't ask for a replacement; we can
+                                  only throw an Input_failure and fail this
+                                  task. *)
+                               raise (E.Worker_failure err)
+                           | N.Download_file fi ->
+                               process_download fi split
+                      ) splits;
+            (id :: processed), failed
+        | Inp_error err ->
+            (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
+               | P.M_ok
+               | P.M_fail ->
+                   if fail_on_input_error then raise (E.Worker_failure err)
+                   else processed, (id :: failed)
+               | P.M_retry new_replicas ->
+                   process_input (processed, failed) (id, _st, new_replicas)
+               | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
+            )
+    end in
   let processed = ref [] in
   let fin = ref false in
     while (not !fin) do
