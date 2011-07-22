@@ -192,15 +192,8 @@ let parse_index s =
       | _ -> assert false
   in List.map parse_line (U.string_split s '\n')
 
-let filter_index part indx =
-  List.filter (fun (i, _) -> i = part) indx
-
 let read_index _taskinfo urls =
   parse_index (get_payload (List.map Uri.to_string urls))
-
-let filter_index taskinfo part_urls =
-  let pi = read_index taskinfo part_urls in
-    List.map snd (filter_index (string_of_int taskinfo.P.task_id) pi)
 
 let open_reduce_output taskinfo =
   let fname = filename taskinfo (Printf.sprintf "reduce-disco-%d" taskinfo.P.task_id)
