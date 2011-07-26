@@ -102,11 +102,12 @@ module TestTask = struct
     mutable records_parsed : int;
   }
   let rECORD_END    = '\x00'
-  let lINE_BUF_SIZE = 1024 * 2
-  let mAX_BUF_SIZE  = 1024 * 1024
+  let lINE_BUF_SIZE = 2 * 1024 * 1024
+  let bUF_SIZE  = 128 * 1024 * 1024
+  let mAX_BUF_SIZE = 512 * 1024 * 1024
 
   let init_sorted_input input =
-    {chan = input; buf = Buffer.create lINE_BUF_SIZE; next_record = 0; records_parsed = 0}
+    {chan = input; buf = Buffer.create bUF_SIZE; next_record = 0; records_parsed = 0}
 
   let rec get_record_end_loop buf ofs =
     if Buffer.nth buf ofs = rECORD_END then ofs
