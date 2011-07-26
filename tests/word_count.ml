@@ -41,7 +41,7 @@ let strip_word = function
           | _ -> String.sub w s (e - s + 1)
 
 let output oc ~key value =
-  output_string oc (Printf.sprintf "%s %s\n" key value)
+  output_string oc (Printf.sprintf "%s\xff%s\x00" key value)
 
 module TestTask = struct
   type map_init = int ref
@@ -63,38 +63,23 @@ module TestTask = struct
   let map_done cnt disco =
     disco.Task.log (Printf.sprintf "Mapped %d entries.\n" !cnt)
 
-  type reduce_init = string * out_channel
+  type reduce_init = string list ref
 
-  let reduce_init disco =
-    Filename.open_temp_file ~temp_dir:disco.Task.temp_dir "sortin-" ""
+  let reduce_init _ = ref ([] : string list)
 
-  let reduce (_, sort_chan) disco in_chan =
-    disco.Task.log (Printf.sprintf "Preparing %s (%d bytes) for sort on %s ...\n"
-                      disco.Task.input_url disco.Task.input_size disco.Task.hostname);
-    let rec loop () =
-      let kv = string_split (input_line in_chan) ' ' in
-      let k, v = (List.hd kv), (List.nth kv 1) in
-        (* Skip keys with embedded sort delimiters *)
-        if (char_in_string k '\x00') || (char_in_string k '\xff') then
-         loop ()
-        else begin
-          (* Write out in format suitable for unix sort *)
-          Printf.fprintf sort_chan "%s\xff%s\x00" k v;
-          loop ()
-        end
-    in
-      try loop () with End_of_file -> ()
+  let reduce in_files disco _ =
+    in_files := disco.Task.input_path :: !in_files
 
   (* Invoke external sort *)
-  let unix_sort sort_file disco =
+  let unix_sort in_files out_file disco =
     let sort_env = Array.append (Unix.environment ()) [|"LC_ALL=C"|] in
-    let sort_args = Array.of_list ["-z";
-                                   "-t"; "\xff";
-                                   "-k"; "1,1";
-                                   "-T"; disco.Task.temp_dir;
-                                   "-S"; "15%";
-                                   "-o"; sort_file;
-                                   sort_file] in
+    let sort_args = Array.of_list (["-z";
+                                    "-t"; "\xff";
+                                    "-k"; "1,1";
+                                    "-T"; disco.Task.temp_dir;
+                                    "-S"; "15%";
+                                    "-o"; out_file]
+                                   @ in_files) in
       match Unix.fork () with
         | 0 ->
             Unix.execvpe "sort" sort_args sort_env
@@ -159,25 +144,26 @@ module TestTask = struct
       si.records_parsed <- si.records_parsed + 1;
       r
 
-  let reduce_done (sort_file, sort_chan) disco =
-    close_out sort_chan;
-    disco.Task.log (Printf.sprintf "Starting sort (file=%s)\n" sort_file);
-    unix_sort sort_file disco;
-    disco.Task.log (Printf.sprintf "Sort done (file=%s)\n" sort_file);
-    let si = init_sorted_input (open_in sort_file) in
-    let task_out = disco.Task.out_channel ~label:None in
-    let rec loop word count =
-      let kv = string_split (get_record si) '\xff' in
-      let k, v = (List.hd kv), int_of_string (List.nth kv 1) in
-        if k = word then loop word (count + v)
-        else if word = "" then loop k v
-        else begin
-          output task_out word (Printf.sprintf "%d" count);
-          loop k v
-        end
-    in
-      try loop "" 0
-      with End_of_file -> disco.Task.log (Printf.sprintf "Reduced %d records\n" si.records_parsed)
+  let reduce_done in_files disco =
+    let sort_out = Filename.temp_file ~temp_dir:disco.Task.temp_dir "sorted-" "" in
+      disco.Task.log (Printf.sprintf "Starting sort (=>%s)\n" sort_out);
+      unix_sort !in_files sort_out disco;
+      disco.Task.log "Sort done\n";
+      let si = init_sorted_input (open_in sort_out) in
+      let task_out = disco.Task.out_channel ~label:None in
+      let rec loop word count =
+        let kv = string_split (get_record si) '\xff' in
+        let k, v = (List.hd kv), int_of_string (List.nth kv 1) in
+          if k = word then loop word (count + v)
+          else if word = "" then loop k v
+          else begin
+            output task_out word (Printf.sprintf "%d" count);
+            loop k v
+          end
+      in
+        try loop "" 0
+        with End_of_file ->
+          disco.Task.log (Printf.sprintf "Reduced %d records\n" si.records_parsed)
 end
 
 let _ =
