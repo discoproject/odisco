@@ -261,9 +261,9 @@ type output = {
 type worker_msg =
   | W_worker of (* version *) string * (* pid *) int
   | W_taskinfo
-  | W_input_exclude of int list
-  | W_input_include of int list
-  | W_input_failure of int * int list
+  | W_input_exclude of input_id list
+  | W_input_include of input_id list
+  | W_input_failure of input_id * replica_id list
   | W_message of string
   | W_error of string
   | W_fatal of string
