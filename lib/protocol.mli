@@ -43,7 +43,7 @@ type input_status =
 
 type input_id = int
 type replica_id = int
-type replica = replica_id * string
+type replica = replica_id * Uri.t
 type input = input_id * input_status * replica list
 
 type master_msg =

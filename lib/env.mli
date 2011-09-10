@@ -2,6 +2,7 @@
    environment: i.e. the local filesystem and HTTP. *)
 
 (* file wrapper to distinguish between transient and persistent files *)
+
 module File : sig
   type t = {
     name : string;
@@ -13,13 +14,20 @@ module File : sig
   val close : t -> unit
 end
 
-(* utilities *)
+type input_req = Protocol.input_id * (* list of alternative replica locations *) Uri.t list
 
+(* download files at specified locations and return open file handles
+   to their local copies
+*)
+type input_resp = Protocol.input_id * (Errors.error, (Uri.t * File.t)) Utils.lr
+val inputs_from : Protocol.taskinfo -> input_req list -> input_resp list
+
+(* retrieve uncompressed payloads from specified locations *)
+type payload_resp = Protocol.input_id * (Errors.error, (Uri.t * string)) Utils.lr
+val payloads_from : Protocol.taskinfo -> input_req list -> payload_resp list
+
+(* parse an index payload *)
+val parse_index : string -> (string * string) list
+
+(* open a task output file *)
 val open_output_file : Protocol.taskinfo -> int option -> File.t
-val read_index : Protocol.taskinfo -> Uri.t list -> (string * string) list
-
-type download_result =
-  | Download_file of File.t * Uri.t
-  | Download_error of Errors.error
-
-val download : Uri.t list -> Protocol.taskinfo -> download_result

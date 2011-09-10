@@ -26,8 +26,8 @@ let setup_task_env ic oc taskinfo =
                       filename = N.File.name file;
                       otype = if label = None then P.Data else P.Labeled } in
        let out = { file; chan; output } in
-         out_files := (label, out) :: !out_files;
-         chan) in
+       out_files := (label, out) :: !out_files;
+       chan) in
   let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
                          (P.string_of_stage taskinfo.P.task_stage)
                          taskinfo.P.task_id
@@ -43,22 +43,19 @@ let setup_task_env ic oc taskinfo =
     log = (fun s -> expect_ok ic oc (P.W_message s));
     temp_dir;
   } in
-    Unix.mkdir task_rootpath 0o766;
-    Unix.mkdir temp_dir 0o766;
-    taskinfo.P.task_rootpath <- task_rootpath;
-    out_files, interface_maker
+  Unix.mkdir task_rootpath 0o766;
+  Unix.mkdir temp_dir 0o766;
+  taskinfo.P.task_rootpath <- task_rootpath;
+  out_files, interface_maker
 
 let close_files out_files =
   flush_all ();
-  List.iter (fun (_, f) ->
-               close_out f.chan;
-               N.File.close f.file;
-            ) out_files
+  let closer = fun (_, f) -> close_out f.chan; N.File.close f.file in
+  List.iter closer out_files
 
 let send_output_msg ic oc out_files =
-  List.iter (fun (_, f) ->
-               expect_ok ic oc (P.W_output f.output)
-            ) out_files
+  let sender = fun (_, f) -> expect_ok ic oc (P.W_output f.output) in
+  List.iter sender out_files
 
 let urls_of_replicas replicas =
   List.map snd replicas
@@ -66,48 +63,145 @@ let urls_of_replicas replicas =
 let ids_of_replicas replicas =
   List.map fst replicas
 
-type resolved_input =
-  | Inp_replicas of Uri.t list
-  | Inp_splits of Uri.t list
-  | Inp_error of E.error
-
-let resolve_input taskinfo ?label (id, _status, replicas) =
-  let norm_uri = (fun uri -> P.norm_uri taskinfo uri) in
-    match List.map Uri.of_string (urls_of_replicas replicas) with
-      | [] ->
-          Inp_replicas []
-      | (h :: _) as replica_urls ->
-          (match P.scheme_of_uri h, label with
-             | P.Dir, Some l ->
-                 (* TODO: Currently, read_index->get_payload just directly
-                    throws an Input_failure on error, which kills this task (but
-                    not the job).  It would be more optimal to have it return
-                    any error in retrieving the index and report it as a normal
-                    input error, so that the master can re-schedule the
-                    generating task. *)
-                 let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
-                 let selected = List.assoc l index in
-                   Inp_splits [norm_uri (Uri.of_string selected)]
-             | P.Dir, None ->
-                 let index = N.read_index taskinfo (List.map norm_uri replica_urls) in
-                 let selected = List.map snd index in
-                   Inp_splits (List.map (fun s -> norm_uri (Uri.of_string s)) selected)
-             | P.Disco, _ | P.Http, _ ->
-                 Inp_replicas (List.map norm_uri replica_urls)
-             | s, _ ->
-                 raise (E.Worker_failure (E.Unsupported_input_scheme (id, (P.string_of_scheme s))))
-          )
-
 let get_task_inputs ic oc excl =
   match P.send_request (P.W_input_exclude excl) ic oc with
     | P.M_task_input (status, inputs) -> status, inputs
     | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
+type resolved_input =
+  | Inp_replicas of P.input_id * (P.replica_id * Uri.t) list
+  | Inp_splits of P.input_id * P.replica_id * Uri.t list
+
+let id_of_resolved_input = function
+  | Inp_replicas (id, _)
+  | Inp_splits (id, _, _) -> id
+
+(* FIXME: The below code doesn't handle input_status yet; this will be
+   added once it's supported in the master. *)
+let resolve_dirs taskinfo inputs label =
+  let dirs, others = List.partition
+    (fun (_id, _status, replicas) ->
+      replicas <> []
+      && P.scheme_of_uri (snd (List.hd replicas)) = P.Dir
+    ) inputs in
+  (* For each of the index inputs, fetch the index from one of the
+     replicas. *)
+  let make_req (id, _status, reps) =
+    id, List.map (fun r -> P.norm_uri taskinfo (snd r)) reps in
+  let indices = N.payloads_from taskinfo (List.map make_req dirs) in
+  (* Map the fetched index back to a replica id *)
+  let lookup_id id inps =
+    let rec loop = function
+      | [] -> assert false  (* The retriever should always return a valid id *)
+      | ((iid, _, _) as inp) :: rest ->
+        if iid = id then inp else loop rest
+    in loop inps in
+  let lookup_rid id uri inps =
+    let _, _, reps = lookup_id id inps in
+    let rec loop = function
+      | [] ->
+        (* FIXME: This could happen if we get HTTP redirects when fetching the index. *)
+        assert false
+      | (rid, u) :: rest ->
+        if P.norm_uri taskinfo u = uri then rid else loop rest
+    in loop reps in
+  (* Process the retrieved indices *)
+  let resolved_dirs = List.map
+    (fun (id, result) ->
+      match result with
+        | U.Right (uri, index) ->
+          U.dbg "Downloaded index for input %d from %s" id (Uri.to_string uri);
+          let rid = lookup_rid id uri dirs in
+          let parts = N.parse_index index in
+          (match label with
+            | Some l ->
+              let selected = List.assoc l parts in
+              let part_uri = P.norm_uri taskinfo (Uri.of_string selected) in
+              U.Right (Inp_splits (id, rid, [part_uri]))
+            | None ->
+              let selected = List.map snd parts in
+              let part_uris = List.map
+                (fun p -> P.norm_uri taskinfo (Uri.of_string p))
+                selected in
+              U.Right (Inp_splits (id, rid, part_uris))
+          )
+        | U.Left e ->
+          U.dbg "Error downloading input %d: %s" id (E.string_of_error e);
+          U.Left (id, (match lookup_id id dirs with _, _, reps -> List.map fst reps), e)
+    ) indices in
+  (* Non-dir inputs are replica inputs *)
+  resolved_dirs @ (List.map
+                     (fun (id, _status, reps) -> U.Right (Inp_replicas (id, reps)))
+                     others)
+
+type localized_input =
+  | Local_replica of P.input_id * Uri.t * N.File.t
+  | Local_splits of P.input_id * (Uri.t * N.File.t) list
+
+let download taskinfo resolved_inputs =
+  let inputs = List.sort
+    (fun i1 i2 -> compare (id_of_resolved_input i1) (id_of_resolved_input i2))
+    resolved_inputs in
+  let lookup_id id =
+    let rec loop = function
+      | [] -> assert false (* The retriever should always return a valid id *)
+      | (Inp_replicas (iid, _) as inp) :: _ when iid = id -> inp
+      | (Inp_splits (iid, _, _) as inp) :: _ when iid = id -> inp
+      | _ :: rest -> loop rest in
+    loop inputs in
+  let make_reqs = function
+    | Inp_replicas (id, reps) -> [ id, List.map (fun r -> P.norm_uri taskinfo (snd r)) reps ]
+    | Inp_splits (id, _, splits) -> List.map (fun s -> id, [s]) splits in
+  let downloads = N.inputs_from taskinfo (List.concat (List.map make_reqs inputs)) in
+  (* Process in order of input id. *)
+  let downloads = List.sort (fun (id1, _) (id2, _) -> compare id1 id2) downloads in
+  let rec collect acc = function
+    | [] -> acc
+    | (id, dr) :: rest ->
+      collect
+        (if acc = [] then [id, [dr]]
+         else if fst (List.hd acc) = id
+         then (id, dr :: snd (List.hd acc)) :: List.tl acc
+         else (id, [dr]) :: acc)
+        rest in
+  let downloads = collect [] downloads in
+  assert (List.length downloads = List.length inputs);
+  List.map (fun (id, dlist) ->
+    match lookup_id id with
+      | Inp_replicas (_, reps) ->
+        (* We should retrieve only one of the replicas. *)
+        assert (List.length dlist = 1);
+        (match List.hd dlist with
+          | U.Left e ->
+            U.dbg "Error downloading input %d: %s" id (E.string_of_error e);
+            U.Left (id, List.map fst reps, e)
+          | U.Right (uri, f) ->
+            U.dbg "Downloaded input %d from %s to %s" id (Uri.to_string uri) (N.File.name f);
+            U.Right (Local_replica (id, uri, f)))
+      | Inp_splits (id, rid, splits) ->
+        (* We should retrieve all of the splits. *)
+        assert (List.length dlist == List.length splits);
+        let errors, results = U.lrsplit dlist in
+        if errors <> [] then begin
+          (* A partially downloaded split cannot be processed, and we
+             report an error after closing any open files. *)
+          U.dbg "Error downloading all %d splits from replica %d of input %d: %d errors"
+            (List.length splits) rid id (List.length errors);
+          List.iter (fun (_uri, f) -> N.File.close f) results;
+          U.Left (id, [rid], List.hd errors)
+        end else begin
+          List.iter
+            (fun (uri, f) ->
+              U.dbg "Downloaded split %s of input %d to %s" (Uri.to_string uri) id (N.File.name f)
+            ) results;
+          U.Right (Local_splits (id, results))
+        end
+  ) downloads
+
 let run_task ic oc taskinfo ?label task_init task_process task_done =
   let in_files = ref ([] : N.File.t list) in
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" "" 0) in
-  let fail_on_input_error = false in
   let process_download fi url =
     let fd = N.File.fd fi in
     let sz = (Unix.fstat fd).Unix.st_size in
@@ -115,76 +209,56 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
       assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
       task_process callback (intf_for_input (Uri.to_string url) (N.File.name fi) sz) (Unix.in_channel_of_descr fd);
       in_files := fi :: !in_files in
-  let rec process_input (processed, failed) ((id, _st, replicas) as input) =
-    if List.mem id processed then processed, failed
-    else begin
-      match resolve_input taskinfo ?label input with
-        | Inp_splits [] | Inp_replicas [] ->
-            (id :: processed), failed
-        | Inp_replicas replica_urls ->
-            (match N.download replica_urls taskinfo with
-               | N.Download_error err ->
-                   U.dbg "Download error on input %d: %s" id (E.string_of_error err);
-                   (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
-                      | P.M_ok
-                      | P.M_fail ->
-                          if fail_on_input_error then raise (E.Worker_failure err)
-                          else processed, (id :: failed)
-                      | P.M_retry new_replicas ->
-                          process_input (processed, failed) (id, _st, new_replicas)
-                      | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
-                   );
-               | N.Download_file (fi, u) ->
-                   process_download fi u;
-                   (id :: processed), failed
-            )
-        | Inp_splits splits ->
-            List.iter (fun split ->
-                         match N.download [split] taskinfo with
-                           | N.Download_error err ->
-                               (* Since we may have partially consumed this
-                                  input, we can't ask for a replacement; we can
-                                  only throw an Input_failure and fail this
-                                  task. *)
-                               raise (E.Worker_failure err)
-                           | N.Download_file (fi, _) ->
-                               process_download fi split
-                      ) splits;
-            (id :: processed), failed
-        | Inp_error err ->
-            (match P.send_request (P.W_input_failure (id, ids_of_replicas replicas)) ic oc with
-               | P.M_ok
-               | P.M_fail ->
-                   if fail_on_input_error then raise (E.Worker_failure err)
-                   else processed, (id :: failed)
-               | P.M_retry new_replicas ->
-                   process_input (processed, failed) (id, _st, new_replicas)
-               | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
-            )
-    end in
+  let process_localized_input = function
+    | Local_replica (id, uri, f) ->
+      process_download f uri;
+      id
+    | Local_splits (id, inps) ->
+      List.iter (fun (uri, f) -> process_download f uri) inps;
+      id in
+  let process inputs =
+    (* First, do a parallel fetch of any partition indices in the
+       inputs, and select partitions based on the label. *)
+    let resolve_errors, resolved_inputs = U.lrsplit (resolve_dirs taskinfo inputs label) in
+    let download_errors, downloaded_inputs = U.lrsplit (download taskinfo resolved_inputs) in
+    let processed_ids = List.map process_localized_input downloaded_inputs in
+    resolve_errors @ download_errors, processed_ids in
   let processed = ref [] in
   let fin = ref false in
     while (not !fin) do
       let status, inputs = get_task_inputs ic oc !processed in
-      let newly_processed, failed =
-        List.fold_left process_input (!processed, []) inputs in
-        processed := newly_processed @ failed;
-        fin := status == P.Task_input_done && failed = []
+      let errors, done_ = process inputs in
+      processed := done_ @ !processed;
+      (* Make one pass at processing retries for errors *)
+      let retries = List.fold_left
+        (fun acc (id, rids, e) ->
+          match P.send_request (P.W_input_failure (id, rids)) ic oc with
+            | P.M_fail ->
+              U.dbg "Unable to get replacement inputs for failed input %d (failure: %s), bailing ..." id (E.string_of_error e);
+              raise (E.Worker_failure e)
+            | P.M_retry reps ->
+              (id, (* unused *) P.Input_ok, reps) :: acc
+            | m ->
+              raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
+        ) [] errors in
+      let errors, redone = process (List.rev retries) in
+      processed := redone @ !processed;
+      fin := status == P.Task_input_done && errors = []
     done;
-    task_done callback (intf_for_input "" "" 0);
-    List.iter N.File.close !in_files;
-    close_files !out_files;
-    send_output_msg ic oc !out_files
+  task_done callback (intf_for_input "" "" 0);
+  List.iter N.File.close !in_files;
+  close_files !out_files;
+  send_output_msg ic oc !out_files
 
 let run_map ic oc taskinfo task =
   let module Task = (val task : Task.TASK) in
   let task_init, task_process, task_done = Task.map_init, Task.map, Task.map_done in
-    run_task ic oc taskinfo task_init task_process task_done
+  run_task ic oc taskinfo task_init task_process task_done
 
 let run_reduce ic oc taskinfo task =
   let module Task = (val task : Task.TASK) in
   let task_init, task_process, task_done = Task.reduce_init, Task.reduce, Task.reduce_done in
-    run_task ic oc taskinfo task_init task_process task_done
+  run_task ic oc taskinfo task_init task_process task_done
 
 let run ic oc taskinfo task =
   U.dbg "running task %s (%s %d)" taskinfo.P.task_name
@@ -200,25 +274,25 @@ let get_taskinfo = function
 let start_protocol ic oc task =
   expect_ok ic oc (P.W_worker (P.protocol_version, Unix.getpid ()));
   let taskinfo = get_taskinfo (P.send_request P.W_taskinfo ic oc) in
-    run ic oc taskinfo task
+  run ic oc taskinfo task
 
 let error_wrap ic oc f =
   let err s =
     U.dbg "error: %s" s;
     expect_ok ic oc (P.W_fatal s)
   in try
-      f ();
-      expect_ok ic oc P.W_done
+       f ();
+       expect_ok ic oc P.W_done
     with
       | E.Worker_failure e ->
-          err ((Printf.sprintf "%s\n" (E.string_of_error e))
-               ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
+        err ((Printf.sprintf "%s\n" (E.string_of_error e))
+             ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
       | JC.Json_conv_error e ->
-          err ((Printf.sprintf "Protocol parse error: %s\n" (JC.string_of_error e))
-               ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
+        err ((Printf.sprintf "Protocol parse error: %s\n" (JC.string_of_error e))
+             ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
       | e ->
-          err ((Printf.sprintf "Uncaught exception: %s\n" (Printexc.to_string e))
-               ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
+        err ((Printf.sprintf "Uncaught exception: %s\n" (Printexc.to_string e))
+             ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
 
 let start task =
   Printexc.record_backtrace true;

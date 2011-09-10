@@ -1,4 +1,14 @@
-module U = Uri
+type ('a, 'b) lr =
+  | Left of 'a  (* e.g. error result *)
+  | Right of 'b (* e.g. valid result *)
+
+let lrsplit list =
+  let rec loop ((ll, rl) as acc) = function
+    | [] -> acc
+    | Left l :: rest  -> loop (l :: ll, rl) rest
+    | Right r :: rest -> loop (ll, r :: rl) rest in
+  let ll, rl = loop ([], []) list in
+  List.rev ll, List.rev rl
 
 (* handling options *)
 
@@ -25,6 +35,7 @@ let string_split s c =
   in iter 0 []
 
 (* prefix handling *)
+
 let is_prefix str p =
   let plen = String.length p in
   let rec prefix_helper ofs =
