@@ -89,7 +89,14 @@ let resolve_dirs taskinfo inputs label =
      replicas. *)
   let make_req (id, _status, reps) =
     id, List.map (fun r -> P.norm_uri taskinfo (snd r)) reps in
-  let indices = N.payloads_from taskinfo (List.map make_req dirs) in
+  let ndirs = List.length dirs in
+  let indices =
+    if ndirs > 0 then begin
+      U.dbg "Fetching %d indices ..." ndirs;
+      let indices = N.payloads_from taskinfo (List.map make_req dirs) in
+      U.dbg "... indices fetched.";
+      indices
+    end else [] in
   (* Map the fetched index back to a replica id *)
   let lookup_id id inps =
     let rec loop = function
@@ -152,7 +159,11 @@ let download taskinfo resolved_inputs =
   let make_reqs = function
     | Inp_replicas (id, reps) -> [ id, List.map (fun r -> P.norm_uri taskinfo (snd r)) reps ]
     | Inp_splits (id, _, splits) -> List.map (fun s -> id, [s]) splits in
-  let downloads = N.inputs_from taskinfo (List.concat (List.map make_reqs inputs)) in
+  let inp_reqs = List.concat (List.map make_reqs inputs) in
+  let n_inp_reqs = List.length inp_reqs in
+  U.dbg "Fetching %d input files ..." n_inp_reqs;
+  let downloads = N.inputs_from taskinfo inp_reqs in
+  U.dbg "... input files fetched.";
   (* Process in order of input id. *)
   let downloads = List.sort (fun (id1, _) (id2, _) -> compare id1 id2) downloads in
   let rec collect acc = function
@@ -198,7 +209,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
   let process_download fi url =
     let fd = N.File.fd fi in
     let sz = (Unix.fstat fd).Unix.st_size in
-      U.dbg "Input file name %s: length %d" (N.File.name fi) sz;
+      U.dbg "Input file %s: length %d" (N.File.name fi) sz;
       assert (Unix.lseek fd 0 Unix.SEEK_SET = 0);
       task_process callback (intf_for_input (Uri.to_string url) (N.File.name fi) sz) (Unix.in_channel_of_descr fd);
       in_files := fi :: !in_files in

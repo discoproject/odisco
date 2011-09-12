@@ -82,7 +82,14 @@ let init_logger task_rootpath =
   if !verbose then begin
     let log = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
                  0o660 (Filename.concat task_rootpath "oc.dbg")) in
-    logger := (fun s -> Printf.fprintf log "%s\n%!" s)
+    logger :=
+      (fun s ->
+        let tm = Unix.localtime (Unix.gettimeofday ()) in
+        Printf.fprintf log "%d:%02d:%02d-%02d:%02d:%02d: %s\n%!"
+          (tm.Unix.tm_year + 1900) tm.Unix.tm_mon tm.Unix.tm_mday
+          tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec
+          s
+      )
   end
 
 let dbg fmt =
