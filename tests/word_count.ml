@@ -44,23 +44,31 @@ let output oc ~key value =
   output_string oc (Printf.sprintf "%s\xff%s\x00" key value)
 
 module TestTask = struct
-  type map_init = int ref
+  type map_init = int ref * (string, int) Hashtbl.t
 
-  let map_init _ = ref 0
+  let map_init _ = ref 0, (Hashtbl.create (1024 * 1024) : (string, int) Hashtbl.t)
 
-  let map cnt disco in_chan =
+  let map (cnt, tbl) disco in_chan =
     disco.Task.log (Printf.sprintf "Mapping %s (%d bytes) on %s ...\n"
                       disco.Task.input_url disco.Task.input_size disco.Task.hostname);
     let rec loop () =
       List.iter (fun w ->
                    match strip_word w with
-                     | "" -> ()
-                     | key -> output (disco.Task.out_channel ~label:None) ~key "1"; incr cnt
+                     | "" ->
+                       ()
+                     | key ->
+                       let v = try Hashtbl.find tbl key with Not_found -> 0 in
+                       Hashtbl.replace tbl key (v + 1);
+                       incr cnt
                 ) (string_split (input_line in_chan) ' ');
       loop ()
     in try loop () with End_of_file -> ()
 
-  let map_done cnt disco =
+  let map_done (cnt, tbl) disco =
+    Hashtbl.iter
+      (fun k v ->
+        output (disco.Task.out_channel ~label:None) k (Printf.sprintf "%d" v)
+      ) tbl;
     disco.Task.log (Printf.sprintf "Mapped %d entries.\n" !cnt)
 
   type reduce_init = string list ref
@@ -102,9 +110,9 @@ module TestTask = struct
     mutable records_parsed : int;
   }
   let rECORD_END    = '\x00'
-  let lINE_BUF_SIZE = 2 * 1024 * 1024
-  let bUF_SIZE  = 128 * 1024 * 1024
-  let mAX_BUF_SIZE = 512 * 1024 * 1024
+  let lINE_BUF_SIZE = 2 * 2 * 1024 * 1024
+  let bUF_SIZE  = 2 * 128 * 1024 * 1024
+  let mAX_BUF_SIZE = 2 * 512 * 1024 * 1024
 
   let init_sorted_input input =
     {chan = input; buf = Buffer.create bUF_SIZE; next_record = 0; records_parsed = 0}
@@ -154,13 +162,16 @@ module TestTask = struct
       let task_out = disco.Task.out_channel ~label:None in
       let rec loop word count =
         let kv = string_split (get_record si) '\xff' in
-        let k, v = (List.hd kv), int_of_string (List.nth kv 1) in
-          if k = word then loop word (count + v)
-          else if word = "" then loop k v
-          else begin
-            output task_out word (Printf.sprintf "%d" count);
-            loop k v
-          end
+        match List.length kv with
+          | 0 | 1 -> loop word count
+          | _ ->
+            let k, v = (List.hd kv), int_of_string (List.nth kv 1) in
+            if k = word then loop word (count + v)
+            else if word = "" then loop k v
+            else begin
+              output task_out word (Printf.sprintf "%d" count);
+              loop k v
+            end
       in
         try loop "" 0
         with End_of_file ->
