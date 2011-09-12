@@ -111,7 +111,6 @@ let resolve_dirs taskinfo inputs label =
     (fun (id, result) ->
       match result with
         | U.Right (uri, index) ->
-          U.dbg "Downloaded index for input %d from %s" id (Uri.to_string uri);
           let rid = lookup_rid id uri dirs in
           let parts = N.parse_index index in
           (match label with
@@ -174,10 +173,8 @@ let download taskinfo resolved_inputs =
         assert (List.length dlist = 1);
         (match List.hd dlist with
           | U.Left e ->
-            U.dbg "Error downloading input %d: %s" id (E.string_of_error e);
             U.Left (id, List.map fst reps, e)
           | U.Right (uri, f) ->
-            U.dbg "Downloaded input %d from %s to %s" id (Uri.to_string uri) (N.File.name f);
             U.Right (Local_replica (id, uri, f)))
       | Inp_splits (id, rid, splits) ->
         (* We should retrieve all of the splits. *)
@@ -190,13 +187,8 @@ let download taskinfo resolved_inputs =
             (List.length splits) rid id (List.length errors);
           List.iter (fun (_uri, f) -> N.File.close f) results;
           U.Left (id, [rid], List.hd errors)
-        end else begin
-          List.iter
-            (fun (uri, f) ->
-              U.dbg "Downloaded split %s of input %d to %s" (Uri.to_string uri) id (N.File.name f)
-            ) results;
+        end else
           U.Right (Local_splits (id, results))
-        end
   ) downloads
 
 let run_task ic oc taskinfo ?label task_init task_process task_done =
@@ -262,8 +254,6 @@ let run_reduce ic oc taskinfo task =
   run_task ic oc taskinfo task_init task_process task_done
 
 let run ic oc taskinfo task =
-  U.dbg "running task %s (%s %d)" taskinfo.P.task_name
-    (P.string_of_stage taskinfo.P.task_stage) taskinfo.P.task_id;
   match taskinfo.P.task_stage with
     | P.Map -> run_map ic oc taskinfo task
     | P.Reduce -> run_reduce ic oc taskinfo task

@@ -27,10 +27,7 @@ module File = struct
   let close f =
     (try Unix.close f.fd
      with Unix.Unix_error (Unix.EBADF, _, _) -> ());
-    if f.delete_on_close then begin
-      U.dbg "deleting file %s" f.name;
-      Unix.unlink f.name
-    end
+    if f.delete_on_close then Unix.unlink f.name
 end
 
 (* internal decompression utilities *)
@@ -150,6 +147,8 @@ let inputs_from taskinfo input_reqs =
     incr req_id;
     let f = (File.open_new ~delete_on_close:true
                (local_filename taskinfo (List.hd replicas))) in
+    U.dbg "Attempting download to %s of [%s]"
+      (File.name f) (String.concat " " (List.map Uri.to_string replicas));
     (!req_id, ((f, id), (Http.Request_header.Get,
                          C.FileRecv ((List.map Uri.to_string replicas), f.File.fd),
                          !req_id))) in
