@@ -76,12 +76,14 @@ let strip_word = function
 (* debug logging *)
 
 let verbose = ref true
-let logger =
+let logger = ref (fun _s -> ())
+
+let init_logger task_rootpath =
   if !verbose then begin
-    let logc = open_out_gen [ Open_creat;
-                              Open_append;
-                              Open_wronly ] 0o660 "/tmp/oc.dbg" in
-      fun s -> Printf.fprintf logc "%s\n%!" s
-  end else fun _s -> ()
+    let log = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
+                 0o660 (Filename.concat task_rootpath "oc.dbg")) in
+    logger := (fun s -> Printf.fprintf log "%s\n%!" s)
+  end
+
 let dbg fmt =
-  Printf.ksprintf logger fmt
+  Printf.ksprintf !logger fmt

@@ -44,6 +44,7 @@ let setup_task_env ic oc taskinfo =
     temp_dir;
   } in
   Unix.mkdir task_rootpath 0o766;
+  Utils.init_logger task_rootpath;
   Unix.mkdir temp_dir 0o766;
   taskinfo.P.task_rootpath <- task_rootpath;
   out_files, interface_maker
