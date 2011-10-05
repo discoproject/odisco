@@ -149,7 +149,7 @@ let inputs_from taskinfo input_reqs =
                (local_filename taskinfo (List.hd replicas))) in
     U.dbg "Attempting download to %s of [%s]"
       (File.name f) (String.concat " " (List.map Uri.to_string replicas));
-    (!req_id, ((f, id), (Http.Request_header.Get,
+    (!req_id, ((f, id), (Http.Get,
                          C.FileRecv ((List.map Uri.to_string replicas), f.File.fd),
                          !req_id))) in
   let req_map = List.map
@@ -168,7 +168,7 @@ let inputs_from taskinfo input_reqs =
           id, U.Left (E.Input_failure e)
         | { C.request_id = rq_id; C.response = Some r; C.url = url } ->
           let f, id = fst (List.assoc rq_id req_map) in
-          let status = r.Http.Response.response.Http.Response_header.status_code in
+          let status = Http.Response.status_code r in
           if status = 200
           then id, U.Right ((Uri.of_string url), f)
           else id, U.Left (E.Input_response_failure (url, status))
@@ -192,9 +192,7 @@ let payloads_from taskinfo input_reqs =
     ) locals in
   (* retrieve remote data over HTTP *)
   let make_req id replicas =
-    (id, (Http.Request_header.Get,
-          C.Payload (List.map Uri.to_string replicas, None),
-          id)) in
+    (id, (Http.Get, C.Payload (List.map Uri.to_string replicas, None), id)) in
   let req_map = List.map
     (function
       | Remote (id, replicas) -> make_req id replicas
@@ -208,11 +206,11 @@ let payloads_from taskinfo input_reqs =
         | { C.request_id = id; response = None; error = Some e } ->
           id, U.Left (E.Input_failure e)
         | { C.request_id = id; C.response = Some r; C.url = url } ->
-          let status = r.Http.Response.response.Http.Response_header.status_code in
+          let status = Http.Response.status_code r in
           if status <> 200
           then id, U.Left (E.Input_response_failure (url, status))
           else
-            let buf = (U.unopt r.Http.Response.payload).Http.Payload.content in
+            let buf = U.unopt (Http.Response.payload_buf r) in
             let content = Buffer.contents buf in
             let payload = if is_gzipped url then gunzip_str content url else content in
             id, U.Right ((Uri.of_string url), payload)
