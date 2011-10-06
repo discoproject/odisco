@@ -2,3 +2,6 @@ test_task.byte
 test_task.native
 word_count.byte
 word_count.native
+test_ddfs.byte
+test_ddfs.native
+

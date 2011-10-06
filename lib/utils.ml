@@ -10,6 +10,11 @@ let lrsplit list =
   let ll, rl = loop ([], []) list in
   List.rev ll, List.rev rl
 
+let (+>) lrv f =
+  match lrv with
+    | Right v -> f v
+    | Left e  -> Left e
+
 (* handling options *)
 
 let unopt = function
