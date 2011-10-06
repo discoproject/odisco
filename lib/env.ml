@@ -160,13 +160,11 @@ let inputs_from taskinfo input_reqs =
   let remote_results = List.map
     (fun resp ->
       match resp with
-        | { C.response = None; error = None } ->
-          assert false
-        | { C.request_id = rq_id; response = None; error = Some e } ->
+        | { C.request_id = rq_id; response = C.Failure (e, rest) } ->
           let f, id = fst (List.assoc rq_id req_map) in
           File.close f;
-          id, U.Left (E.Input_failure e)
-        | { C.request_id = rq_id; C.response = Some r; C.url = url } ->
+          id, U.Left (E.Input_failure (e :: rest))
+        | { C.request_id = rq_id; C.response = C.Success (r, _); C.url = url } ->
           let f, id = fst (List.assoc rq_id req_map) in
           let status = Http.Response.status_code r in
           if status = 200
@@ -201,11 +199,9 @@ let payloads_from taskinfo input_reqs =
   let remote_results = List.map
     (fun resp ->
       match resp with
-        | { C.response = None; error = None } ->
-          assert false
-        | { C.request_id = id; response = None; error = Some e } ->
-          id, U.Left (E.Input_failure e)
-        | { C.request_id = id; C.response = Some r; C.url = url } ->
+        | { C.request_id = id; response = C.Failure (e, rest) } ->
+          id, U.Left (E.Input_failure (e :: rest))
+        | { C.request_id = id; C.response = C.Success (r, _); C.url = url } ->
           let status = Http.Response.status_code r in
           if status <> 200
           then id, U.Left (E.Input_response_failure (url, status))
