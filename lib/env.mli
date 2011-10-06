@@ -31,3 +31,13 @@ val parse_index : string -> (string * string) list
 
 (* open a task output file *)
 val open_output_file : Protocol.taskinfo -> int option -> File.t
+
+(** client-side environment *)
+
+(** default Disco/DDFS master: if the DISCO_MASTER_HOST is not set,
+    this is derived from the local hostname *)
+val default_master_host : unit -> string
+
+(** default Disco/DDFS port: if the DISCO_PORT is not set, this
+    defaults to 8989 *)
+val default_port : unit -> int

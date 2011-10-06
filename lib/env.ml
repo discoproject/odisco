@@ -234,3 +234,14 @@ let open_output_file taskinfo label =
         | None -> Printf.sprintf "%s-disco-%d-%09d" stage taskinfo.P.task_id 0
         | Some l -> Printf.sprintf "part-disco-%09d" l)
   in File.open_new ~delete_on_close:false fname
+
+(* client-side environment *)
+
+let default_master_host () =
+  try Unix.getenv "DISCO_MASTER_HOST"
+  with Not_found -> Unix.gethostname ()
+
+let default_port () =
+  let sport = try Unix.getenv "DISCO_PORT" with Not_found -> "8989" in
+  try int_of_string sport
+  with Failure _ -> raise (E.Worker_failure (E.Invalid_port sport))
