@@ -69,7 +69,9 @@ let run () =
            Printf.printf "Unrecognized option: %s\n" opt;
            print_usage ()
       )
-  in process_args 1
+  in
+  U.init_logger "/tmp";
+  process_args 1
 
 let _ =
   if Array.length Sys.argv = 1 then

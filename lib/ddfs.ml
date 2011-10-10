@@ -104,9 +104,19 @@ let blob_size ?cfg blobset =
     | {C.response = C.Success (r, _)} :: _ ->
       (try
          let len_hdr = H.lookup_header "Content-Length" (H.Response.headers r) in
-         Some (int_of_string (String.concat ", " len_hdr))
+         let len_str = (String.concat ", " len_hdr) in
+         U.dbg "Attempting to converting content-length: %s" len_str;
+         Some (int_of_string len_str)
        with
-         | Failure "int_of_string" -> None
-         | Not_found -> None)
-    | {C.response = C.Failure _} :: _ -> None
+         | Failure "int_of_string" ->
+           U.dbg "Error converting content-length from: %s" (String.concat ", " urls);
+           None
+         | Not_found ->
+           U.dbg "No content-length found in: %s" (String.concat ", " urls);
+           None)
+    | {C.response = C.Failure ((u, e), uel)} :: _ ->
+      List.iter (fun (u, e) ->
+        U.dbg "Retrieval of %s failed: %s" u (C.string_of_error e)
+      ) ((u, e) :: uel);
+      None
     | [] -> assert false
