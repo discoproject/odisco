@@ -5,7 +5,22 @@ module D = Ddfs
 let print_usage () =
   Printf.printf "%s: [options]\n" Sys.argv.(0);
   Printf.printf "    -size <tag> : print the (unreplicated) size of the tag\n";
+  Printf.printf "    -get <tag> : print the tag metadata\n";
   exit 1
+
+let tag_show tag_name =
+  match D.tag_of_tagname tag_name with
+    | U.Left e ->
+      Printf.printf "Error retrieving tag %s: %s\n" tag_name (E.string_of_error e);
+    | U.Right t ->
+      Printf.printf "id: %s\n" t.D.tag_id;
+      Printf.printf "last_modified: %s\n" t.D.tag_last_modified;
+      Printf.printf "attribs:\n";
+      List.iter (fun (k, v) -> Printf.printf "\t%s=%s\n" k v) t.D.tag_attribs;
+      Printf.printf "urls:\n";
+      List.iter (fun bs ->
+        Printf.printf "\t%s\n" (String.concat ", " (List.map Uri.to_string bs))
+      ) t.D.tag_urls
 
 let rec tag_size_helper tag_name had_error =
   Printf.printf "[tag %s]\n" tag_name;
@@ -61,6 +76,10 @@ let run () =
     else
       (let opt = Sys.argv.(indx) in
        match opt with
+         | "-get" ->
+           let tags, next = get_op_args (indx + 1) in
+           List.iter tag_show tags;
+           process_args next
          | "-size" ->
            let tags, next = get_op_args (indx + 1) in
            List.iter tag_size tags;

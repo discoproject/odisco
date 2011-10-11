@@ -43,7 +43,7 @@ let client_norm_uri cfg uri =
   let trans_auth =
     match uri.Uri.authority with
       | None -> None
-      | Some a -> Some { a with Uri.port = Some cfg.cfg_port }
+      | Some a -> Some {a with Uri.port = Some cfg.cfg_port}
   in
   match uri.Uri.scheme with
     | None ->
@@ -86,7 +86,11 @@ let tag_of_json j =
                       (fun bs ->
                         List.map (Uri.of_string @@ JC.to_string) (JC.to_list bs))
                       ju) in
-    let tag_attribs = [] in
+    let jattribs = JC.to_object_table (JC.object_field o "user-data") in
+    let tag_attribs = (List.map
+                         (fun (k, v)  ->
+                           k, JC.to_string v)
+                         (JC.object_table_to_list jattribs)) in
     U.Right {tag_id; tag_last_modified; tag_attribs; tag_urls}
   with
     | JC.Json_conv_error e -> U.Left (E.Unexpected_json e)
