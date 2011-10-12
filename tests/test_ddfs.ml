@@ -2,16 +2,22 @@ module U = Utils
 module E = Errors
 module D = Ddfs
 
+module StringSet = Set.Make (struct type t = string let compare = compare end)
+
+let verbose = ref false
+
 let print_usage () =
-  Printf.printf "%s: [options]\n" Sys.argv.(0);
+  Printf.printf "%s: [-v] [cmd ...]\n" Sys.argv.(0);
+  Printf.printf "where cmd can be:\n";
   Printf.printf "    -size <tag> : print the (unreplicated) size of the tag\n";
-  Printf.printf "    -get <tag> : print the tag metadata\n";
+  Printf.printf "    -get  <tag> : print the tag metadata\n";
+  Printf.printf "    -nest <tag> : print (first-level) nested tags\n";
   exit 1
 
 let tag_show tag_name =
   match D.tag_of_tagname tag_name with
     | U.Left e ->
-      Printf.printf "Error retrieving tag %s: %s\n" tag_name (E.string_of_error e);
+      Printf.eprintf "%s\n" (E.string_of_error e)
     | U.Right t ->
       Printf.printf "id: %s\n" t.D.tag_id;
       Printf.printf "last_modified: %s\n" t.D.tag_last_modified;
@@ -22,45 +28,59 @@ let tag_show tag_name =
         Printf.printf "\t%s\n" (String.concat ", " (List.map Uri.to_string bs))
       ) t.D.tag_urls
 
-let rec tag_size_helper tag_name had_error =
-  Printf.printf "[tag %s]\n" tag_name;
+let tag_nest tag_name =
   match D.tag_of_tagname tag_name with
     | U.Left e ->
-      Printf.printf "Error retrieving tag %s: %s\n" tag_name (E.string_of_error e);
-      0, true
+      Printf.eprintf "%s\n" (E.string_of_error e)
     | U.Right t ->
-      let tsz, err =
+      let nested =
+        List.fold_left (fun s bs ->
+          List.fold_left (fun s u ->
+            if D.is_tag_url u then StringSet.add (D.tag_name u) s else s
+          ) s bs
+        ) StringSet.empty t.D.tag_urls in
+      Printf.printf "%s: " tag_name;
+      StringSet.iter (Printf.printf "%s, ") nested;
+      Printf.printf "\n"
+
+let rec tag_size_helper tag_name visited had_error =
+  if StringSet.mem tag_name visited then
+    0, had_error, visited
+  else begin
+    let visited = StringSet.add tag_name visited in
+    match D.tag_of_tagname tag_name with
+      | U.Left e ->
+        Printf.eprintf "%s\n" (E.string_of_error e);
+        0, true, visited
+      | U.Right t ->
         List.fold_left
-          (fun (acc, had_err) blobset ->
+          (fun (acc, had_err, visited) blobset ->
             match blobset with
-              | [] -> acc, had_err
-              | b :: _ ->
+              | [] -> acc, had_err, visited
+              | (b :: _) as blobs ->
                 if D.is_tag_url b then begin
                   let tn = D.tag_name b in
-                  let sz, err = tag_size_helper tn had_err in
-                  acc + sz, err
-              end else begin
-                match D.blob_size blobset with
-                  | None ->
-                    Printf.eprintf "Tag %s: error sizing blobs: %s\n"
-                      tag_name (String.concat ", " (List.map Uri.to_string blobset));
-                    0, true
-                  | Some bsz ->
-                    Printf.printf "[+%d : %s]\n"
-                      bsz (String.concat ", " (List.map Uri.to_string blobset));
-                    acc + bsz, had_err
-              end
-          ) (0, had_error) t.D.tag_urls in
-      Printf.printf "[%d -> %s]\n" tsz tag_name;
-      tsz, err
+                  let sz, err, v = tag_size_helper tn visited had_err in
+                  acc + sz, err, v
+                end else begin
+                  match D.blob_size blobs with
+                    | None ->
+                      Printf.eprintf "Tag %s: error sizing blobs: %s\n"
+                        tag_name (String.concat ", " (List.map Uri.to_string blobs));
+                      0, true, visited
+                    | Some bsz ->
+                      acc + bsz, had_err, visited
+                end
+          ) (0, had_error, visited) t.D.tag_urls
+  end
 
 let tag_size tag_name =
-  let tsz, err = tag_size_helper tag_name false in
+  let tsz, err, _ = tag_size_helper tag_name StringSet.empty false in
   if err then
     Printf.printf "Error computing tag size for %s: partial estimate is %d bytes.\n"
       tag_name tsz
   else
-    Printf.printf "Tag %s has %d bytes.\n" tag_name tsz
+    Printf.printf "tag %s contains %d bytes\n" tag_name tsz
 
 let run () =
   let is_opt a = a.[0] = '-' in
@@ -76,6 +96,9 @@ let run () =
     else
       (let opt = Sys.argv.(indx) in
        match opt with
+         | "-v" ->
+           verbose := true;
+           process_args (indx + 1)
          | "-get" ->
            let tags, next = get_op_args (indx + 1) in
            List.iter tag_show tags;
@@ -83,6 +106,10 @@ let run () =
          | "-size" ->
            let tags, next = get_op_args (indx + 1) in
            List.iter tag_size tags;
+           process_args next
+         | "-nest" ->
+           let tags, next = get_op_args (indx + 1) in
+           List.iter tag_nest tags;
            process_args next
          | _ ->
            Printf.printf "Unrecognized option: %s\n" opt;
