@@ -58,7 +58,12 @@ let is_tag_url u =
     | Some "tag" -> true
     | Some _ | None -> false
 
-let tag_name u = U.unopt u.Uri.path
+let tag_name u =
+  let auth = U.unopt u.Uri.authority in
+  Printf.sprintf "%s@%s:%s"
+    (U.defopt "" auth.Uri.userinfo)
+    auth.Uri.host
+    (U.defopt "" (U.mapopt string_of_int auth.Uri.port))
 
 let tag_payload_of_name ?cfg tag_name =
   let url = url_for_tagname (safe_config cfg) tag_name in
@@ -109,11 +114,10 @@ let blob_size ?cfg blobset =
       (try
          let len_hdr = H.lookup_header "Content-Length" (H.Response.headers r) in
          let len_str = (String.concat ", " len_hdr) in
-         U.dbg "Attempting to converting content-length: %s" len_str;
          Some (int_of_string len_str)
        with
          | Failure "int_of_string" ->
-           U.dbg "Error converting content-length from: %s" (String.concat ", " urls);
+           U.dbg "Error converting content-length for: %s" (String.concat ", " urls);
            None
          | Not_found ->
            U.dbg "No content-length found in: %s" (String.concat ", " urls);
