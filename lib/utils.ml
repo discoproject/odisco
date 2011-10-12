@@ -21,6 +21,10 @@ let unopt = function
   | Some v -> v
   | None -> assert false
 
+let defopt d = function
+  | Some v -> v
+  | None -> d
+
 let mapopt f = function
   | Some v -> Some (f v)
   | None -> None
