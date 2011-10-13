@@ -39,6 +39,9 @@ let safe_config = function
 let url_for_tagname cfg tag_name =
   Printf.sprintf "http://%s:%d/ddfs/tag/%s" cfg.cfg_master cfg.cfg_port tag_name
 
+let url_for_tag_list cfg =
+  Printf.sprintf "http://%s:%d/ddfs/tags" cfg.cfg_master cfg.cfg_port
+
 let client_norm_uri cfg uri =
   let trans_auth =
     match uri.Uri.authority with
@@ -58,22 +61,26 @@ let is_tag_url u =
     | Some "tag" -> true
     | Some _ | None -> false
 
-let tag_name u =
+let tag_name_of_url u =
   let auth = U.unopt u.Uri.authority in
-  Printf.sprintf "%s@%s:%s"
-    (U.defopt "" auth.Uri.userinfo)
-    auth.Uri.host
-    (U.defopt "" (U.mapopt string_of_int auth.Uri.port))
+  match auth with
+    | {Uri.userinfo = None;   Uri.port = None}   -> auth.Uri.host
+    | {Uri.userinfo = None;   Uri.port = Some p} -> Printf.sprintf "%s:%d" auth.Uri.host p
+    | {Uri.userinfo = Some u; Uri.port = None}   -> Printf.sprintf "%s@%s" u auth.Uri.host
+    | {Uri.userinfo = Some u; Uri.port = Some p} -> Printf.sprintf "%s@%s:%d" u auth.Uri.host p
 
-let tag_payload_of_name ?cfg tag_name =
-  let url = url_for_tagname (safe_config cfg) tag_name in
-  let req = H.Get, C.Payload ([url], None), 0 in
+let payload_of_req req err_of =
   match C.request [req] with
     | {C.response = C.Success (r, _)} :: _ ->
       U.Right (Buffer.contents (U.unopt (H.Response.payload_buf r)))
     | {C.response = C.Failure ((_url, e), _)} :: _ ->
-      U.Left (E.Tag_retrieval_failure (tag_name, e))
+      U.Left (err_of e)
     | [] -> assert false
+
+let tag_payload_of_name ?cfg tag_name =
+  let url = url_for_tagname (safe_config cfg) tag_name in
+  let err_of e = E.Tag_retrieval_failure (tag_name, e) in
+  payload_of_req (H.Get, C.Payload ([url], None), 0) err_of
 
 let tag_json_of_payload p =
   try U.Right (JP.of_string p)
@@ -128,3 +135,17 @@ let blob_size ?cfg blobset =
       ) ((u, e) :: uel);
       None
     | [] -> assert false
+
+let tag_list_of_payload p =
+  try U.Right (JP.of_string p)
+  with JP.Parse_error e -> U.Left (E.Invalid_json e)
+
+let tag_list_of_json j =
+  try U.Right (List.map JC.to_string (JC.to_list j))
+  with JC.Json_conv_error e -> U.Left (E.Unexpected_json e)
+
+let tag_list ?cfg () =
+  let url = url_for_tag_list (safe_config cfg) in
+  let err_of e = E.Tag_list_failure e in
+  ((payload_of_req (H.Get, C.Payload ([url], None), 0) err_of)
+   +> tag_list_of_payload +> tag_list_of_json)

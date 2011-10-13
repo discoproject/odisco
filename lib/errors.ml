@@ -16,6 +16,7 @@ type error =
   | Unsupported_input_scheme of int * string
   | Invalid_port of string
   | Tag_retrieval_failure of string * C.error
+  | Tag_list_failure of C.error
   | Invalid_json of JP.error
   | Unexpected_json of JC.error
   | Invalid_uri of Uri.error
@@ -50,6 +51,8 @@ let string_of_error = function
     Printf.sprintf "Invalid port '%s'" s
   | Tag_retrieval_failure (t, e) ->
     Printf.sprintf "Error retrieving tag '%s': %s" t (C.string_of_error e)
+  | Tag_list_failure e ->
+    Printf.sprintf "Error listing tags: %s" (C.string_of_error e)
   | Invalid_json e ->
     Printf.sprintf "Invalid JSON: %s" (JP.string_of_error e)
   | Unexpected_json e ->
