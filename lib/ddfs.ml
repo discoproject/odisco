@@ -94,14 +94,12 @@ let tag_of_json j =
     let tag_id = JC.to_string (JC.object_field o "id") in
     let tag_last_modified = JC.to_string (JC.object_field o "last-modified") in
     let ju = JC.to_list (JC.object_field o "urls") in
-    let tag_urls = (List.map
-                      (fun bs ->
-                        List.map (Uri.of_string @@ JC.to_string) (JC.to_list bs))
-                      ju) in
+    (* Use List.rev_map to handle tags with a very large number of blobsets. *)
+    let tag_urls = List.rev (List.rev_map (fun bs ->
+      List.map (Uri.of_string @@ JC.to_string) (JC.to_list bs)
+    ) ju) in
     let jattribs = JC.to_object_table (JC.object_field o "user-data") in
-    let tag_attribs = (List.map
-                         (fun (k, v)  ->
-                           k, JC.to_string v)
+    let tag_attribs = (List.map (fun (k, v)  -> k, JC.to_string v)
                          (JC.object_table_to_list jattribs)) in
     U.Right {tag_id; tag_last_modified; tag_attribs; tag_urls}
   with
