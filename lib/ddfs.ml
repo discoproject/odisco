@@ -9,6 +9,8 @@ module E = Errors
 module N = Env
 module U = Utils
 
+module StringSet = Set.Make (struct type t = string let compare = compare end)
+
 (* Configuration of the DDFS master. *)
 type config = {
   cfg_master : string;      (** the hostname of the DDFS master *)
@@ -110,6 +112,17 @@ let (+>) = U.(+>)
 
 let tag_of_tagname n =
   (tag_payload_of_name n) +> tag_json_of_payload +> tag_of_json
+
+let child_tags_of_tag t =
+  let children = List.fold_left (fun s bs ->
+    List.fold_left (fun s u ->
+      if is_tag_url u then StringSet.add (tag_name_of_url u) s else s
+    ) s bs
+  ) StringSet.empty t.tag_urls in
+  U.Right (StringSet.elements children)
+
+let child_tags_of_tag_name n =
+  (tag_of_tagname n) +> child_tags_of_tag
 
 let blob_size ?cfg blobset =
   let cfg = safe_config cfg in
