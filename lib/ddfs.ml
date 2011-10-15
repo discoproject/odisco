@@ -71,18 +71,18 @@ let tag_name_of_url u =
     | {Uri.userinfo = Some u; Uri.port = None}   -> Printf.sprintf "%s@%s" u auth.Uri.host
     | {Uri.userinfo = Some u; Uri.port = Some p} -> Printf.sprintf "%s@%s:%d" u auth.Uri.host p
 
-let payload_of_req req err_of =
-  match C.request [req] with
+let payload_of_req ?timeout req err_of =
+  match C.request ?timeout [req] with
     | {C.response = C.Success (r, _)} :: _ ->
       U.Right (Buffer.contents (U.unopt (H.Response.payload_buf r)))
     | {C.response = C.Failure ((_url, e), _)} :: _ ->
       U.Left (err_of e)
     | [] -> assert false
 
-let tag_payload_of_name ?cfg tag_name =
+let tag_payload_of_name ?cfg ?timeout tag_name =
   let url = url_for_tagname (safe_config cfg) tag_name in
   let err_of e = E.Tag_retrieval_failure (tag_name, e) in
-  payload_of_req (H.Get, C.Payload ([url], None), 0) err_of
+  payload_of_req ?timeout (H.Get, C.Payload ([url], None), 0) err_of
 
 let tag_json_of_payload p =
   try U.Right (JP.of_string p)
@@ -110,8 +110,8 @@ let tag_of_json j =
 
 let (+>) = U.(+>)
 
-let tag_of_tagname n =
-  (tag_payload_of_name n) +> tag_json_of_payload +> tag_of_json
+let tag_of_tagname ?cfg ?timeout n =
+  (tag_payload_of_name ?cfg ?timeout n) +> tag_json_of_payload +> tag_of_json
 
 let child_tags_of_tag t =
   let children = List.fold_left (fun s bs ->
@@ -121,13 +121,13 @@ let child_tags_of_tag t =
   ) StringSet.empty t.tag_urls in
   U.Right (StringSet.elements children)
 
-let child_tags_of_tag_name n =
-  (tag_of_tagname n) +> child_tags_of_tag
+let child_tags_of_tag_name ?cfg ?timeout n =
+  (tag_of_tagname ?cfg ?timeout n) +> child_tags_of_tag
 
-let blob_size ?cfg blobset =
+let blob_size ?cfg ?timeout blobset =
   let cfg = safe_config cfg in
   let urls = List.map (Uri.to_string @@ (client_norm_uri cfg)) blobset in
-  match C.request [(H.Head, C.Payload (urls, None), 0)] with
+  match C.request ?timeout [(H.Head, C.Payload (urls, None), 0)] with
     | {C.response = C.Success (r, _)} :: _ ->
       (try
          let len_hdr = H.lookup_header "Content-Length" (H.Response.headers r) in
@@ -155,8 +155,8 @@ let tag_list_of_json j =
   try U.Right (List.map JC.to_string (JC.to_list j))
   with JC.Json_conv_error e -> U.Left (E.Unexpected_json e)
 
-let tag_list ?cfg () =
+let tag_list ?cfg ?timeout () =
   let url = url_for_tag_list (safe_config cfg) in
   let err_of e = E.Tag_list_failure e in
-  ((payload_of_req (H.Get, C.Payload ([url], None), 0) err_of)
+  ((payload_of_req ?timeout (H.Get, C.Payload ([url], None), 0) err_of)
    +> tag_list_of_payload +> tag_list_of_json)
