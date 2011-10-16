@@ -51,11 +51,16 @@ let tag_links_all () =
     | U.Right tl ->
       List.iter tag_links tl
 
+let kB = 1000
+let mB = 1000000
+let gB = 1000000000
+let tB = 1000000000000
 let human_size size =
-  if size < 1000000 then Printf.sprintf "%dB" size
-  else if size < 1000000000 then Printf.sprintf "%dMB" (size / 1000000)
-  else if size < 1000000000000 then Printf.sprintf "%dGB" (size / 1000000000)
-  else Printf.sprintf "%dTB" (size / 1000000000000)
+  if size < kB then Printf.sprintf "%dB" size
+  else if size < mB then Printf.sprintf "%dKB" (size / kB)
+  else if size < gB then Printf.sprintf "%dMB" (size / mB)
+  else if size < tB then Printf.sprintf "%dGB" (size / gB)
+  else Printf.sprintf "%dTB" (size / tB)
 
 let log_tag_size ?(partial = false) tag_name size =
   if partial then
@@ -120,7 +125,7 @@ let tag_size_all () =
           in v'
         ) StringMap.empty tl in
       let total = StringMap.fold (fun _t sz acc -> sz + acc) size_map 0 in
-      Printf.printf "Total data in DDFS is %d bytes (unreplicated).\n" total
+      Printf.printf "Total data in DDFS is %s (unreplicated).\n" (human_size total)
 
 let run () =
   let is_opt a = a.[0] = '-' in
