@@ -2,20 +2,27 @@ module U = Utils
 module E = Errors
 module D = Ddfs
 
-module StringSet = Set.Make (struct type t = string let compare = compare end)
+module StringMap = Map.Make (struct type t = string let compare = compare end)
+
+let tAG_LIST_TIMEOUT = 5.0
+let tAG_TIMEOUT = 60.0
+let bLOB_TIMEOUT = 0.3
 
 let verbose = ref false
 
 let print_usage () =
   Printf.printf "%s: [-v] [cmd ...]\n" Sys.argv.(0);
   Printf.printf "where cmd can be:\n";
-  Printf.printf "    -size <tag> : print the (unreplicated) size of the tag\n";
-  Printf.printf "    -get  <tag> : print the tag metadata\n";
-  Printf.printf "    -nest <tag> : print (first-level) nested tags\n";
+  Printf.printf "    -list        : list all tag names\n";
+  Printf.printf "    -size  <tag> : print the (unreplicated) size of <tag>\n";
+  Printf.printf "    -get   <tag> : print the metadata of <tag>\n";
+  Printf.printf "    -links <tag> : print (first-level) child tags of <tag>\n";
+  Printf.printf "    -links_all   : print (first-level) child tags\n";
+  Printf.printf "    -size_all    : print (unreplicated) size of all tags\n";
   exit 1
 
 let tag_show tag_name =
-  match D.tag_of_tagname tag_name with
+  match D.tag_of_tagname ~timeout:tAG_TIMEOUT tag_name with
     | U.Left e ->
       Printf.eprintf "%s\n" (E.string_of_error e)
     | U.Right t ->
@@ -28,42 +35,56 @@ let tag_show tag_name =
         Printf.printf "\t%s\n" (String.concat ", " (List.map Uri.to_string bs))
       ) t.D.tag_urls
 
-let tag_nest tag_name =
-  match D.tag_of_tagname tag_name with
+let tag_links tag_name =
+  match D.child_tags_of_tag_name ~timeout:tAG_TIMEOUT tag_name with
     | U.Left e ->
       Printf.eprintf "%s\n" (E.string_of_error e)
-    | U.Right t ->
-      let nested =
-        List.fold_left (fun s bs ->
-          List.fold_left (fun s u ->
-            if D.is_tag_url u then StringSet.add (D.tag_name u) s else s
-          ) s bs
-        ) StringSet.empty t.D.tag_urls in
+    | U.Right children ->
       Printf.printf "%s: " tag_name;
-      StringSet.iter (Printf.printf "%s, ") nested;
+      List.iter (Printf.printf "%s ") children;
       Printf.printf "\n"
 
-let rec tag_size_helper tag_name visited had_error =
-  if StringSet.mem tag_name visited then
-    0, had_error, visited
+let tag_links_all () =
+  match D.tag_list ~timeout:tAG_LIST_TIMEOUT () with
+    | U.Left e ->
+      Printf.eprintf "%s\n" (E.string_of_error e)
+    | U.Right tl ->
+      List.iter tag_links tl
+
+let human_size size =
+  if size < 1000000 then Printf.sprintf "%dB" size
+  else if size < 1000000000 then Printf.sprintf "%dMB" (size / 1000000)
+  else if size < 1000000000000 then Printf.sprintf "%dGB" (size / 1000000000)
+  else Printf.sprintf "%dTB" (size / 1000000000000)
+
+let log_tag_size ?(partial = false) tag_name size =
+  if partial then
+    Printf.printf "tag %s contains %s (and probably more; some blobs were inaccessible)\n%!"
+      tag_name (human_size size)
+  else
+    Printf.printf "tag %s contains %s\n%!" tag_name (human_size size)
+
+let rec tag_size_helper tag_name visited ~had_error ~show_children =
+  if StringMap.mem tag_name visited then
+    (StringMap.find tag_name visited), had_error, visited
   else begin
-    let visited = StringSet.add tag_name visited in
-    match D.tag_of_tagname tag_name with
+    U.dbg "processing tag %s ..." tag_name;
+    match D.tag_of_tagname ~timeout:tAG_TIMEOUT tag_name with
       | U.Left e ->
         Printf.eprintf "%s\n" (E.string_of_error e);
         0, true, visited
       | U.Right t ->
-        List.fold_left
-          (fun (acc, had_err, visited) blobset ->
+        let acc, had_error, visited =
+          List.fold_left (fun (acc, had_err, visited) blobset ->
             match blobset with
               | [] -> acc, had_err, visited
               | (b :: _) as blobs ->
                 if D.is_tag_url b then begin
-                  let tn = D.tag_name b in
-                  let sz, err, v = tag_size_helper tn visited had_err in
-                  acc + sz, err, v
+                  let tn = D.tag_name_of_url b in
+                  let sz, err, v = tag_size_helper tn visited ~had_error:false ~show_children in
+                  acc + sz, (err || had_err), v
                 end else begin
-                  match D.blob_size blobs with
+                  match D.blob_size ~timeout:bLOB_TIMEOUT blobs with
                     | None ->
                       Printf.eprintf "Tag %s: error sizing blobs: %s\n"
                         tag_name (String.concat ", " (List.map Uri.to_string blobs));
@@ -71,16 +92,35 @@ let rec tag_size_helper tag_name visited had_error =
                     | Some bsz ->
                       acc + bsz, had_err, visited
                 end
-          ) (0, had_error, visited) t.D.tag_urls
+          ) (0, false, visited) t.D.tag_urls in
+        if show_children then log_tag_size ~partial:had_error tag_name acc;
+        acc, had_error, (StringMap.add tag_name acc visited)
   end
 
 let tag_size tag_name =
-  let tsz, err, _ = tag_size_helper tag_name StringSet.empty false in
-  if err then
-    Printf.printf "Error computing tag size for %s: partial estimate is %d bytes.\n"
-      tag_name tsz
-  else
-    Printf.printf "tag %s contains %d bytes\n" tag_name tsz
+  let tsz, partial, _ =
+    tag_size_helper tag_name StringMap.empty ~had_error:false ~show_children:false
+  in log_tag_size ~partial tag_name tsz
+
+let tag_list () =
+  match D.tag_list ~timeout:tAG_LIST_TIMEOUT () with
+    | U.Left e ->
+      Printf.eprintf "%s\n" (E.string_of_error e)
+    | U.Right tl ->
+      List.iter (Printf.printf "%s\n") tl
+
+let tag_size_all () =
+  match D.tag_list ~timeout:tAG_LIST_TIMEOUT () with
+    | U.Left e ->
+      Printf.eprintf "%s\n" (E.string_of_error e)
+    | U.Right tl ->
+      let size_map =
+        List.fold_left (fun v tn ->
+          let _, _, v' = tag_size_helper tn v ~had_error:false ~show_children:true
+          in v'
+        ) StringMap.empty tl in
+      let total = StringMap.fold (fun _t sz acc -> sz + acc) size_map 0 in
+      Printf.printf "Total data in DDFS is %d bytes (unreplicated).\n" total
 
 let run () =
   let is_opt a = a.[0] = '-' in
@@ -107,10 +147,19 @@ let run () =
            let tags, next = get_op_args (indx + 1) in
            List.iter tag_size tags;
            process_args next
-         | "-nest" ->
+         | "-links" ->
            let tags, next = get_op_args (indx + 1) in
-           List.iter tag_nest tags;
+           List.iter tag_links tags;
            process_args next
+         | "-list" ->
+           tag_list ();
+           process_args (indx + 1)
+         | "-size_all" ->
+           tag_size_all ();
+           process_args (indx + 1)
+         | "-links_all" ->
+           tag_links_all ();
+           process_args (indx + 1)
          | _ ->
            Printf.printf "Unrecognized option: %s\n" opt;
            print_usage ()
