@@ -62,50 +62,50 @@ let human_size size =
   else if size < tB then Printf.sprintf "%dGB" (size / gB)
   else Printf.sprintf "%dTB" (size / tB)
 
-let log_tag_size ?(partial = false) tag_name size =
-  if partial then
-    Printf.printf "tag %s contains %s (and probably more; some blobs were inaccessible)\n%!"
-      tag_name (human_size size)
+let log_tag_size ?(errs = (0, 0)) tag_name size =
+  if errs <> (0, 0) then
+    Printf.printf "tag %s contains %s (and probably more; some %d nested tags and %d blobs were inaccessible)\n%!"
+      tag_name (human_size size) (fst errs) (snd errs)
   else
     Printf.printf "tag %s contains %s\n%!" tag_name (human_size size)
 
-let rec tag_size_helper tag_name visited ~had_error ~show_children =
+let rec tag_size_helper tag_name visited ((tag_errs, blob_errs) as errs) ~show_children =
   if StringMap.mem tag_name visited then
-    (StringMap.find tag_name visited), had_error, visited
+    (StringMap.find tag_name visited), errs, visited
   else begin
     U.dbg "processing tag %s ..." tag_name;
     match D.tag_of_tagname ~timeout:tAG_TIMEOUT tag_name with
       | U.Left e ->
         Printf.eprintf "%s\n" (E.string_of_error e);
-        0, true, visited
+        0, (tag_errs + 1, blob_errs), visited
       | U.Right t ->
-        let acc, had_error, visited =
-          List.fold_left (fun (acc, had_err, visited) blobset ->
+        let acc, ((t_errs, b_errs) as new_errs), visited =
+          List.fold_left (fun (acc, ((t_errs, b_errs) as errs), visited) blobset ->
             match blobset with
-              | [] -> acc, had_err, visited
+              | [] -> acc, errs, visited
               | (b :: _) as blobs ->
                 if D.is_tag_url b then begin
                   let tn = D.tag_name_of_url b in
-                  let sz, err, v = tag_size_helper tn visited ~had_error:false ~show_children in
-                  acc + sz, (err || had_err), v
+                  let sz, (t_e, b_e), v = tag_size_helper tn visited (0, 0) ~show_children in
+                  acc + sz, (t_errs + t_e, b_errs + b_e), v
                 end else begin
                   match D.blob_size ~timeout:bLOB_TIMEOUT blobs with
                     | None ->
                       Printf.eprintf "Tag %s: error sizing blobs: %s\n"
                         tag_name (String.concat ", " (List.map Uri.to_string blobs));
-                      0, true, visited
+                      0, (t_errs, b_errs+1), visited
                     | Some bsz ->
-                      acc + bsz, had_err, visited
+                      acc + bsz, errs, visited
                 end
-          ) (0, false, visited) t.D.tag_urls in
-        if show_children then log_tag_size ~partial:had_error tag_name acc;
-        acc, had_error, (StringMap.add tag_name acc visited)
+          ) (0, (0, 0), visited) t.D.tag_urls in
+        if show_children then log_tag_size ~errs:new_errs tag_name acc;
+        acc, (tag_errs + t_errs, blob_errs + b_errs), (StringMap.add tag_name acc visited)
   end
 
 let tag_size tag_name =
-  let tsz, partial, _ =
-    tag_size_helper tag_name StringMap.empty ~had_error:false ~show_children:false
-  in log_tag_size ~partial tag_name tsz
+  let tsz, errs, _ =
+    tag_size_helper tag_name StringMap.empty (0, 0) ~show_children:false
+  in log_tag_size ~errs tag_name tsz
 
 let tag_list () =
   match D.tag_list ~timeout:tAG_LIST_TIMEOUT () with
@@ -121,7 +121,7 @@ let tag_size_all () =
     | U.Right tl ->
       let size_map =
         List.fold_left (fun v tn ->
-          let _, _, v' = tag_size_helper tn v ~had_error:false ~show_children:true
+          let _, _, v' = tag_size_helper tn v (0, 0) ~show_children:true
           in v'
         ) StringMap.empty tl in
       let total = StringMap.fold (fun _t sz acc -> sz + acc) size_map 0 in
