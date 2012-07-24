@@ -16,25 +16,26 @@ type output = {
 }
 
 let setup_task_env ic oc taskinfo =
-  let out_files = ref ([] : (int option * output) list) in
+  let out_files = ref ([] : (int * output) list) in
   let out_channel ~label =
     try (List.assoc label !out_files).chan
     with Not_found ->
       (let file = N.open_output_file taskinfo label in
        let chan = Unix.out_channel_of_descr (N.File.fd file) in
-       let output = { P.label = U.mapopt string_of_int label;
+       let output = { P.label = label;
                       filename = N.File.name file;
-                      otype = if label = None then P.Data else P.Labeled } in
+                      otype = P.Labeled } in
        let out = { file; chan; output } in
        out_files := (label, out) :: !out_files;
        chan) in
-  let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
-                         (P.string_of_stage taskinfo.P.task_stage)
-                         taskinfo.P.task_id
-                         (Unix.time ())) in
-  let temp_dir = Filename.concat task_rootpath "tmp" in
+  let temp_dir = Filename.concat taskinfo.P.task_rootpath "tmp" in
   let interface_maker input_url input_path input_size = {
-    Task.taskname = taskinfo.P.task_name;
+    Task.jobname = taskinfo.P.task_jobname;
+    jobfile = taskinfo.P.task_jobfile;
+    stage = taskinfo.P.task_stage;
+    group_label = taskinfo.P.task_group_label;
+    group_node = taskinfo.P.task_group_node;
+    task_id = taskinfo.P.task_id;
     hostname = taskinfo.P.task_host;
     input_url;
     input_path;
@@ -43,10 +44,9 @@ let setup_task_env ic oc taskinfo =
     log = (fun s -> expect_ok ic oc (P.W_message s));
     temp_dir;
   } in
-  Unix.mkdir task_rootpath 0o766;
-  Utils.init_logger task_rootpath;
+  Unix.mkdir taskinfo.P.task_rootpath 0o766;
+  Utils.init_logger taskinfo.P.task_rootpath;
   Unix.mkdir temp_dir 0o766;
-  taskinfo.P.task_rootpath <- task_rootpath;
   out_files, interface_maker
 
 let close_files out_files =
@@ -120,18 +120,9 @@ let resolve_dirs taskinfo inputs label =
         | U.Right (uri, index) ->
           let rid = lookup_rid id uri dirs in
           let parts = N.parse_index index in
-          (match label with
-            | Some l ->
-              let selected = List.assoc l parts in
-              let part_uri = P.norm_uri taskinfo (Uri.of_string selected) in
-              U.Right (Inp_splits (id, rid, [part_uri]))
-            | None ->
-              let selected = List.map snd parts in
-              let part_uris = List.map
-                (fun p -> P.norm_uri taskinfo (Uri.of_string p))
-                selected in
-              U.Right (Inp_splits (id, rid, part_uris))
-          )
+          let selected, _ = List.assoc label parts in
+          let part_uri = P.norm_uri taskinfo (Uri.of_string selected) in
+          U.Right (Inp_splits (id, rid, [part_uri]))
         | U.Left e ->
           U.dbg "Error downloading input %d: %s" id (E.string_of_error e);
           U.Left (id, (match lookup_id id dirs with _, _, reps -> List.map fst reps), e)
@@ -202,7 +193,7 @@ let download taskinfo resolved_inputs =
           U.Right (Local_splits (id, results))
   ) downloads
 
-let run_task ic oc taskinfo ?label task_init task_process task_done =
+let run_task ic oc taskinfo task_init task_process task_done =
   let in_files = ref ([] : N.File.t list) in
   let out_files, intf_for_input = setup_task_env ic oc taskinfo in
   let callback = task_init (intf_for_input "" "" 0) in
@@ -223,7 +214,7 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
   let process inputs =
     (* First, do a parallel fetch of any partition indices in the
        inputs, and select partitions based on the label. *)
-    let resolve_errors, resolved_inputs = U.lrsplit (resolve_dirs taskinfo inputs label) in
+    let resolve_errors, resolved_inputs = U.lrsplit (resolve_dirs taskinfo inputs taskinfo.P.task_group_label) in
     let download_errors, downloaded_inputs = U.lrsplit (download taskinfo resolved_inputs) in
     let processed_ids = List.map process_localized_input downloaded_inputs in
     resolve_errors @ download_errors, processed_ids in
@@ -254,20 +245,9 @@ let run_task ic oc taskinfo ?label task_init task_process task_done =
   close_files !out_files;
   send_output_msg ic oc !out_files
 
-let run_map ic oc taskinfo task =
-  let module Task = (val task : Task.TASK) in
-  let task_init, task_process, task_done = Task.map_init, Task.map, Task.map_done in
-  run_task ic oc taskinfo task_init task_process task_done
-
-let run_reduce ic oc taskinfo task =
-  let module Task = (val task : Task.TASK) in
-  let task_init, task_process, task_done = Task.reduce_init, Task.reduce, Task.reduce_done in
-  run_task ic oc taskinfo task_init task_process task_done
-
 let run ic oc taskinfo task =
-  match taskinfo.P.task_stage with
-    | P.Map -> run_map ic oc taskinfo task
-    | P.Reduce -> run_reduce ic oc taskinfo task
+  let module Task = (val task : Task.TASK) in
+  run_task ic oc taskinfo Task.task_init Task.task_process Task.task_done
 
 let get_taskinfo = function
   | P.M_taskinfo ti -> ti

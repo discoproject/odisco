@@ -2,25 +2,26 @@
 
 (** Messages from Disco to worker. *)
 
-type stage =
-  | Map
-  | Reduce
-
-val string_of_stage : stage -> string
-
 type taskinfo = {
   (* info from protocol *)
+  task_jobname : string;
+  task_jobfile : string;
+
+  task_stage : string;
+  task_group_label : int;
+  task_group_node : string option;
   task_id : int;
-  task_stage : stage;
-  task_name : string;
+
   task_host : string;
+
+  task_master : string;
   task_disco_port : int;
   task_put_port : int;
   task_disco_root : string;
   task_ddfs_root : string;
 
   (* runtime state *)
-  mutable task_rootpath : string;
+  task_rootpath : string;
 }
 
 type scheme =
@@ -59,12 +60,11 @@ val master_msg_name : master_msg -> string
 (** Messages from worker to Disco. *)
 
 type output_type =
-  | Data
   | Labeled
   | Persistent
 
 type output = {
-  label : string option;
+  label : int;
   filename : string;
   otype : output_type;
 }

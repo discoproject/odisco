@@ -4,34 +4,27 @@ module JP = Json_parse
 module E = Errors
 module U = Unix
 
-let protocol_version = "1.0"
-
-type stage =
-  | Map
-  | Reduce
-
-let stage_of_string s =
-  match String.lowercase s with
-    | "map" -> Map
-    | "reduce" -> Reduce
-    | _ -> raise (E.Worker_failure (E.Unknown_stage s))
-
-let string_of_stage = function
-  | Map -> "map"
-  | Reduce -> "reduce"
+let protocol_version = "1.1"
 
 (* master -> worker *)
 
 type taskinfo = {
+  task_jobname : string;
+  task_jobfile : string;
+
+  task_stage : string;
+  task_group_label : int;
+  task_group_node : string option;
   task_id : int;
-  task_stage : stage;
-  task_name : string;
+
   task_host : string;
+
+  task_master : string;
   task_disco_port : int;
   task_put_port : int;
   task_disco_root : string;
   task_ddfs_root : string;
-  mutable task_rootpath : string;
+  task_rootpath : string;
 }
 
 type scheme =
@@ -125,18 +118,31 @@ let split s =
 let taskinfo_of b =
   let table = JC.to_object_table b in
   let lookup key = JC.object_field table key in
+
+  let task_jobname = JC.to_string (lookup "jobname") in
+  let task_jobfile = JC.to_string (lookup "jobfile") in
+
+  let task_stage = JC.to_string (lookup "stage") in
+  let group = JC.to_list (lookup "group") in
+  let task_group_label = JC.to_int (List.hd group) in
+  let task_group_node =
+    match JC.to_string (List.nth group 1) with
+      | "none" -> None
+      | node   -> Some node in
   let task_id = JC.to_int (lookup "taskid") in
-  let task_stage = stage_of_string (JC.to_string (lookup "mode")) in
-  let task_name = JC.to_string (lookup "jobname") in
+
   let task_host = JC.to_string (lookup "host") in
+  let task_master = JC.to_string (lookup "master") in
   let task_disco_port = JC.to_int (lookup "disco_port") in
   let task_put_port = JC.to_int (lookup "put_port") in
   let task_disco_root = JC.to_string (lookup "disco_data") in
   let task_ddfs_root = JC.to_string (lookup "ddfs_data") in
-  let task_rootpath = "./" in
-  { task_id; task_stage; task_name; task_host;
-    task_disco_port; task_put_port; task_disco_root; task_ddfs_root;
-    task_rootpath }
+  let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
+                         task_stage task_id (Unix.time ())) in
+  { task_jobname; task_jobfile;
+    task_stage; task_group_label; task_group_node; task_id;
+    task_host; task_master; task_disco_port; task_put_port;
+    task_disco_root; task_ddfs_root; task_rootpath }
 
 let task_input_of b =
   let msg = JC.to_list b in
@@ -246,17 +252,15 @@ let next_master_msg ic =
 (* worker -> master *)
 
 type output_type =
-  | Data
   | Labeled
   | Persistent
 
 let string_of_output_type = function
-  | Data -> "disco"
-  | Labeled -> "part"
+  | Labeled    -> "disco"
   | Persistent -> "tag"
 
 type output = {
-  label : string option;
+  label : int;
   filename : string;
   otype : output_type;
 }
@@ -295,11 +299,9 @@ let prepare_msg = function
   | W_fatal s ->
     "FATAL", J.to_string (J.String s)
   | W_output o ->
-    let list = [ J.String o.filename;
-                 J.String (string_of_output_type o.otype) ] @
-      (match o.label with
-        | None -> []
-        | Some l -> [J.String l])
+    let list = [ J.Int (Int64.of_int o.label);
+                 J.String o.filename;
+                 J.String (string_of_output_type o.otype) ]
     in "OUTPUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
     "DONE", J.to_string (J.String "")

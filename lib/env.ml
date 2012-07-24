@@ -218,7 +218,8 @@ let payloads_from taskinfo input_reqs =
 let parse_index s =
   let parse_line l =
     match U.string_split l ' ' with
-      | p :: url :: [] -> p, url
+      | label :: url :: size :: [] ->
+        (int_of_string label), (url, (int_of_string size))
       | _ -> assert false
   in List.map parse_line (U.string_split s '\n')
 
@@ -227,12 +228,7 @@ let parse_index s =
 let filename taskinfo name =
   Filename.concat taskinfo.P.task_rootpath name
 let open_output_file taskinfo label =
-  let stage = P.string_of_stage taskinfo.P.task_stage in
-  let fname =
-    filename taskinfo
-      (match label with
-        | None -> Printf.sprintf "%s-disco-%d-%09d" stage taskinfo.P.task_id 0
-        | Some l -> Printf.sprintf "part-disco-%09d" l)
+  let fname = filename taskinfo (Printf.sprintf "part-disco-%09d" label)
   in File.open_new ~delete_on_close:false fname
 
 (* client-side environment *)

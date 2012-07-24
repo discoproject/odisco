@@ -4,7 +4,6 @@ module JC = Json_conv
 module C = Http_client
 
 type error =
-  | Unknown_stage of string
   | Protocol_parse_error of string * string
   | Protocol_error of string
   | Bad_msg of string * string * string
@@ -22,8 +21,6 @@ type error =
   | Invalid_uri of Uri.error
 
 let string_of_error = function
-  | Unknown_stage s ->
-    Printf.sprintf "unknown stage '%s'" s
   | Protocol_parse_error (i, es) ->
     Printf.sprintf "protocol parse error on input '%s': %s" i es
   | Protocol_error msg ->

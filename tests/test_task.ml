@@ -15,7 +15,7 @@ module TestTask = struct
       List.iter (fun w ->
                    match U.strip_word w with
                      | "" -> ()
-                     | key -> output (disco.Task.out_channel ~label:None) ~key "1"; incr cnt
+                     | key -> output (disco.Task.out_channel ~label:0) ~key "1"; incr cnt
                 ) (U.string_split (input_line in_chan) ' ');
       loop ()
     in try loop () with End_of_file -> ()
@@ -41,7 +41,7 @@ module TestTask = struct
 
   let reduce_done tbl disco =
     Hashtbl.iter (fun k v ->
-                    output (disco.Task.out_channel ~label:None) k (Printf.sprintf "%d" v)
+                    output (disco.Task.out_channel ~label:0) k (Printf.sprintf "%d" v)
                  ) tbl;
     disco.Task.log (Printf.sprintf "Reduce output %d entries.\n" (Hashtbl.length tbl))
 

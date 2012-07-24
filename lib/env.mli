@@ -27,10 +27,10 @@ type payload_resp = Protocol.input_id * (Errors.error, (Uri.t * string)) Utils.l
 val payloads_from : Protocol.taskinfo -> input_req list -> payload_resp list
 
 (* parse an index payload *)
-val parse_index : string -> (string * string) list
+val parse_index : string -> (int * (string * int)) list
 
 (* open a task output file *)
-val open_output_file : Protocol.taskinfo -> int option -> File.t
+val open_output_file : Protocol.taskinfo -> int -> File.t
 
 (** client-side environment *)
 
