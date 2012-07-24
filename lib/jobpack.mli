@@ -41,5 +41,9 @@ val jobdata_of : header -> string -> string
 
 val make_jobpack : ?envs:jobenvs -> ?jobdata:string
   -> name:string -> owner:string -> worker:string
-  -> pipeline:Pipeline.pipeline -> inputs:Pipeline.input list
+  -> pipeline:Pipeline.pipeline -> Pipeline.input list
   -> jobpack
+
+(* Errors *)
+
+val string_of_error : error -> string

@@ -4,6 +4,7 @@ module JC = Json_conv
 module P  = Pipeline
 module Z  = Zip
 module F  = Filename
+module U  = Utils
 
 type error =
   | Invalid_magic of int
@@ -45,6 +46,32 @@ let mAGIC = 0xd5c0
 let vERSION = 0x0001
 let hDR_LEN = 128
 let hDR_LEN_STR = "128"
+
+(* error printing utilities *)
+
+let string_of_error = function
+  | Invalid_magic i ->
+    Printf.sprintf "invalid magic %d (expected %d)" i mAGIC
+  | Unsupported_version v ->
+    Printf.sprintf "unsupported version %d (expected %d)" v vERSION
+  | Invalid_header e ->
+    Printf.sprintf "invalid header (%s)" e
+  | Invalid_jobdict_ofs o ->
+    Printf.sprintf "invalid jobdict offset (%d)" o
+  | Invalid_jobenvs_ofs o ->
+    Printf.sprintf "invalid jobenvs offset (%d)" o
+  | Invalid_jobhome_ofs o ->
+    Printf.sprintf "invalid jobhome offset (%d)" o
+  | Invalid_jobdata_ofs o ->
+    Printf.sprintf "invalid jobdata offset (%d)" o
+  | Invalid_jobdict s ->
+    Printf.sprintf "invalid jobdict (%s)" s
+  | Invalid_jobenvs s ->
+    Printf.sprintf "invalid jobenvs (%s)" s
+  | Invalid_pipeline s ->
+    Printf.sprintf "invalid pipeline (%s)" s
+  | Missing_jobdict_key k ->
+    Printf.sprintf "missing jobdict key %s" k
 
 (* bytestring utilities *)
 
@@ -90,7 +117,7 @@ let validate_header hdr pack =
   if hdr.jobhome_ofs < hdr.jobenvs_ofs then
     raise (Jobpack_error (Invalid_jobhome_ofs hdr.jobhome_ofs));
   if hdr.jobdata_ofs < hdr.jobhome_ofs
-    || hdr.jobdata_ofs >= String.length pack then
+    || hdr.jobdata_ofs > String.length pack then
     raise (Jobpack_error (Invalid_jobdata_ofs hdr.jobdata_ofs))
 
 let header_of pack =
@@ -156,30 +183,14 @@ let jobdata_of hdr pack =
 
 (* jobpack creation utilities *)
 
-let contents_of_file f =
-  (* Assumes the file is not being modified while it is being read *)
-  let inc = open_in f in
-  let sz = (Unix.stat f).Unix.st_size in
-  let sbuf = String.create sz in
-  let rec slurp ofs len =
-    let read = input inc sbuf ofs len in
-    if read > 0 then
-      slurp (ofs + read) (len - read) in
-  slurp 0 sz;
-  close_in inc;
-  sbuf
-
 let zip_from_file f =
-  let inc = open_in f in
-  try
-    let tf = F.temp_file "ocamljob" "" in
-    let outz = Z.open_out ~comment:"odisco job" tf in
-    Z.copy_channel_to_entry inc outz (F.basename f);
-    Z.close_out outz;
-    contents_of_file tf
-  with e ->
-    close_in inc;
-    raise e
+  let tf = F.temp_file "ocamljob" "" in
+  let outz = Z.open_out tf in
+  Z.copy_file_to_entry f outz (F.basename f);
+  Z.close_out outz;
+  let zip = U.contents_of_file tf in
+  Unix.unlink tf;
+  zip
 
 let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs =
   let i = List.map P.json_of_input inputs in
@@ -191,10 +202,10 @@ let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs =
   J.Object (Array.of_list [n; o; w; p; i])
 
 let make_jobpack ?(envs=[]) ?(jobdata="")
-    ~name ~owner ~worker ~pipeline ~inputs =
+    ~name ~owner ~worker ~pipeline inputs =
   let jobdict = J.to_string (make_jobdict_json ~name ~owner
                                ~worker ~pipeline ~inputs) in
-  let jobhome = contents_of_file (zip_from_file worker) in
+  let jobhome = zip_from_file worker in
   let envarr  = List.map (fun (k, v) -> k, J.String v) envs in
   let jobenvs = J.to_string (J.Object (Array.of_list envarr)) in
 

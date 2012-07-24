@@ -103,3 +103,18 @@ let init_logger task_rootpath =
 
 let dbg fmt =
   Printf.ksprintf !logger fmt
+
+(* file contents *)
+
+let contents_of_file f =
+  (* Assumes the file is not being modified while it is being read *)
+  let inc = open_in f in
+  let sz = (Unix.stat f).Unix.st_size in
+  let sbuf = String.create sz in
+  let rec slurp ofs len =
+    let read = input inc sbuf ofs len in
+    if read > 0 then
+      slurp (ofs + read) (len - read) in
+  slurp 0 sz;
+  close_in inc;
+  sbuf

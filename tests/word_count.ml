@@ -67,7 +67,7 @@ module TestTask = struct
   let map_done (cnt, tbl) disco =
     Hashtbl.iter
       (fun k v ->
-        output (disco.Task.out_channel ~label:None) k (Printf.sprintf "%d" v)
+        output (disco.Task.out_channel ~label:0) k (Printf.sprintf "%d" v)
       ) tbl;
     disco.Task.log (Printf.sprintf "Mapped %d entries.\n" !cnt)
 
@@ -159,7 +159,7 @@ module TestTask = struct
       unix_sort !in_files sort_out disco;
       disco.Task.log "Sort done\n";
       let si = init_sorted_input (open_in sort_out) in
-      let task_out = disco.Task.out_channel ~label:None in
+      let task_out = disco.Task.out_channel ~label:0 in
       let rec loop word count =
         let kv = string_split (get_record si) '\xff' in
         match List.length kv with
