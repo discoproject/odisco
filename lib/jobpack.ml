@@ -37,10 +37,16 @@ type jobdict = {
   inputs : P.input list;
 }
 
+type jobpack = string
+
+type jobenvs = (string * string) list
+
 let mAGIC = 0xd5c0
 let vERSION = 0x0001
 let hDR_LEN = 128
 let hDR_LEN_STR = "128"
+
+(* bytestring utilities *)
 
 let int16_at s ofs =
   ((int_of_char s.[ofs]) lsl 8) + int_of_char s.[ofs + 1]
@@ -58,6 +64,8 @@ let put_int32 i s ofs =
   s.[ofs + 1] <- char_of_int ((i lsr 16) land 255);
   s.[ofs + 2] <- char_of_int ((i lsr  8) land 255);
   s.[ofs + 3] <- char_of_int (i land 255)
+
+(* header utilities *)
 
 let extract_header pack =
   if String.length pack < hDR_LEN then
@@ -85,7 +93,14 @@ let validate_header hdr pack =
     || hdr.jobdata_ofs >= String.length pack then
     raise (Jobpack_error (Invalid_jobdata_ofs hdr.jobdata_ofs))
 
-let raw_jobdict hdr pack =
+let header_of pack =
+  let hdr = extract_header pack in
+  validate_header hdr pack;
+  hdr
+
+(* jobdict utilities *)
+
+let json_jobdict_of hdr pack =
   let jobdict_len = hdr.jobenvs_ofs - hdr.jobdict_ofs in
   try
     let json = JP.of_substring pack hdr.jobdict_ofs jobdict_len in
@@ -101,7 +116,7 @@ let oWNER  = "owner"
 let wORKER = "worker"
 let iNPUTS = "inputs"
 let pIPELINE = "pipeline"
-let jobdict_from_dict dict =
+let jobdict_from_json dict =
   List.iter (fun key ->
                if not (List.mem_assoc key dict)
                then raise (Jobpack_error (Missing_jobdict_key key))
@@ -111,28 +126,38 @@ let jobdict_from_dict dict =
   let worker = JC.to_string (List.assoc wORKER dict) in
   let inputs = List.map P.input_of_json (JC.to_list (List.assoc iNPUTS dict)) in
   let pipeline = P.pipeline_of_json (List.assoc pIPELINE dict) in
-  if not (P.is_valid_pipeline pipeline)
-  then raise (Jobpack_error (Invalid_pipeline "repeated stages"));
   { name; owner; worker; inputs; pipeline }
 
-let raw_jobenvs hdr pack =
+let jobdict_of hdr pack =
+  jobdict_from_json (json_jobdict_of hdr pack)
+
+(* job environment utilities *)
+
+let json_jobenvs_of hdr pack =
   let jobenvs_len = hdr.jobhome_ofs - hdr.jobenvs_ofs in
   try JP.of_substring pack hdr.jobenvs_ofs jobenvs_len
   with JP.Parse_error e ->
     raise (Jobpack_error (Invalid_jobenvs (JP.string_of_error e)))
 
-let of_json_jobenvs jobenvs =
+let jobenvs_of_json jobenvs =
   try
     let envs = JC.object_table_to_list (JC.to_object_table jobenvs) in
     List.map (fun (k, v) -> k, JC.to_string v) envs
   with JC.Json_conv_error e ->
     raise (Jobpack_error (Invalid_jobenvs (JC.string_of_error e)))
 
-let jobdata hdr pack =
+let jobenvs_of hdr pack =
+  jobenvs_of_json (json_jobenvs_of hdr pack)
+
+(* jobdata utilities *)
+
+let jobdata_of hdr pack =
   String.sub pack hdr.jobdata_ofs (String.length pack - hdr.jobdata_ofs)
 
-(* Assumes the file is not being modified while it is being read *)
+(* jobpack creation utilities *)
+
 let contents_of_file f =
+  (* Assumes the file is not being modified while it is being read *)
   let inc = open_in f in
   let sz = (Unix.stat f).Unix.st_size in
   let sbuf = String.create sz in
@@ -156,7 +181,7 @@ let zip_from_file f =
     close_in inc;
     raise e
 
-let make_jobdict ~name ~owner ~worker ~pipeline ~inputs =
+let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs =
   let i = List.map P.json_of_input inputs in
   let n = pREFIX, J.String name in
   let o = oWNER, J.String owner in
@@ -167,7 +192,8 @@ let make_jobdict ~name ~owner ~worker ~pipeline ~inputs =
 
 let make_jobpack ?(envs=[]) ?(jobdata="")
     ~name ~owner ~worker ~pipeline ~inputs =
-  let jobdict = J.to_string (make_jobdict ~name ~owner ~worker ~pipeline ~inputs) in
+  let jobdict = J.to_string (make_jobdict_json ~name ~owner
+                               ~worker ~pipeline ~inputs) in
   let jobhome = contents_of_file (zip_from_file worker) in
   let envarr  = List.map (fun (k, v) -> k, J.String v) envs in
   let jobenvs = J.to_string (J.Object (Array.of_list envarr)) in
@@ -195,4 +221,6 @@ let make_jobpack ?(envs=[]) ?(jobdata="")
   ofs := !ofs + home_len;
 
   put_int32 !ofs pack 16;
-  String.blit jobdata 0 pack !ofs data_len
+  String.blit jobdata 0 pack !ofs data_len;
+
+  pack
