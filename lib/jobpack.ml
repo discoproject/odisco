@@ -51,9 +51,9 @@ let hDR_LEN_STR = "128"
 
 let string_of_error = function
   | Invalid_magic i ->
-    Printf.sprintf "invalid magic %d (expected %d)" i mAGIC
+    Printf.sprintf "invalid magic %x (expected %x)" i mAGIC
   | Unsupported_version v ->
-    Printf.sprintf "unsupported version %d (expected %d)" v vERSION
+    Printf.sprintf "unsupported version %x (expected %x)" v vERSION
   | Invalid_header e ->
     Printf.sprintf "invalid header (%s)" e
   | Invalid_jobdict_ofs o ->
