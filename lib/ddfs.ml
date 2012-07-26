@@ -11,12 +11,6 @@ module U = Utils
 
 module StringSet = Set.Make (struct type t = string let compare = compare end)
 
-(* Configuration of the DDFS master. *)
-type config = {
-  cfg_master : string;      (** the hostname of the DDFS master *)
-  cfg_port   : int;         (** the DDFS port, usually the same as the Disco port, i.e. 8989 *)
-}
-
 (* DDFS types *)
 
 type tag_name = string
@@ -33,22 +27,18 @@ type tag = {
   tag_urls : blobset list;
 }
 
-let safe_config = function
-  | Some c -> c
-  | None ->
-    {cfg_master = N.default_master_host (); cfg_port = N.default_port ()}
-
 let url_for_tagname cfg tag_name =
-  Printf.sprintf "http://%s:%d/ddfs/tag/%s" cfg.cfg_master cfg.cfg_port tag_name
+  Printf.sprintf "http://%s:%d/ddfs/tag/%s"
+    cfg.Cfg.cfg_master cfg.Cfg.cfg_port tag_name
 
 let url_for_tag_list cfg =
-  Printf.sprintf "http://%s:%d/ddfs/tags" cfg.cfg_master cfg.cfg_port
+  Printf.sprintf "http://%s:%d/ddfs/tags" cfg.Cfg.cfg_master cfg.Cfg.cfg_port
 
 let client_norm_uri cfg uri =
   let trans_auth =
     match uri.Uri.authority with
       | None -> None
-      | Some a -> Some {a with Uri.port = Some cfg.cfg_port}
+      | Some a -> Some {a with Uri.port = Some cfg.Cfg.cfg_port}
   in
   match uri.Uri.scheme with
     | None ->
@@ -80,7 +70,7 @@ let payload_of_req ?timeout req err_of =
     | [] -> assert false
 
 let tag_payload_of_name ?cfg ?timeout tag_name =
-  let url = url_for_tagname (safe_config cfg) tag_name in
+  let url = url_for_tagname (Cfg.safe_config cfg) tag_name in
   let err_of e = E.Tag_retrieval_failure (tag_name, e) in
   payload_of_req ?timeout (H.Get, C.Payload ([url], None), 0) err_of
 
@@ -125,7 +115,7 @@ let child_tags_of_tag_name ?cfg ?timeout n =
   (tag_of_tagname ?cfg ?timeout n) +> child_tags_of_tag
 
 let blob_size ?cfg ?timeout blobset =
-  let cfg = safe_config cfg in
+  let cfg = Cfg.safe_config cfg in
   let urls = List.map (Uri.to_string @@ (client_norm_uri cfg)) blobset in
   match C.request ?timeout [(H.Head, C.Payload (urls, None), 0)] with
     | {C.response = C.Success (r, _)} :: _ ->
@@ -156,7 +146,7 @@ let tag_list_of_json j =
   with JC.Json_conv_error e -> U.Left (E.Unexpected_json e)
 
 let tag_list ?cfg ?timeout () =
-  let url = url_for_tag_list (safe_config cfg) in
+  let url = url_for_tag_list (Cfg.safe_config cfg) in
   let err_of e = E.Tag_list_failure e in
   ((payload_of_req ?timeout (H.Get, C.Payload ([url], None), 0) err_of)
    +> tag_list_of_payload +> tag_list_of_json)
