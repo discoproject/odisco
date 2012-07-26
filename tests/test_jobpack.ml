@@ -3,6 +3,9 @@ module C = Http_client
 module P = Pipeline
 module J = Jobpack
 module U = Utils
+module JS  = Json
+module JC  = Json_conv
+module JP  = Json_parse
 module Api = Rest_api
 
 type op =
@@ -122,8 +125,18 @@ let submit_jobpack ?cfg ?timeout pack =
   let err_of e = Failure (C.string_of_error e) in
   match (Api.payload_of_req ?timeout (H.Post, C.Payload([url], Some pack), 0)
            err_of) with
-    | U.Left e -> print_exception e
-    | U.Right r -> Printf.printf "Submitted job: %s\n" r
+    | U.Left e ->
+      print_exception e
+    | U.Right r ->
+      try match JC.to_list (JP.of_string r) with
+        | [JS.String "ok"; JS.String j] ->
+          Printf.printf "Submitted job: %s\n" j
+        | [JS.String "error"; JS.String e] ->
+          Printf.printf "%s\n" e
+        | _ ->
+          Printf.printf "Unknown response: %s\n" r
+      with _ ->
+        Printf.printf "Unexpected response: %s\n" r
 
 let _ =
   try match parse_args () with
