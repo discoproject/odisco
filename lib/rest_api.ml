@@ -4,12 +4,17 @@ module U = Utils
 
 type req = C.meth * C.request * C.request_id
 
+let url_for_job_submit cfg =
+  Printf.sprintf "http://%s:%d/disco/job/new"
+    cfg.Cfg.cfg_master cfg.Cfg.cfg_port
+
 let url_for_tagname cfg tag_name =
   Printf.sprintf "http://%s:%d/ddfs/tag/%s"
     cfg.Cfg.cfg_master cfg.Cfg.cfg_port tag_name
 
 let url_for_tag_list cfg =
-  Printf.sprintf "http://%s:%d/ddfs/tags" cfg.Cfg.cfg_master cfg.Cfg.cfg_port
+  Printf.sprintf "http://%s:%d/ddfs/tags"
+    cfg.Cfg.cfg_master cfg.Cfg.cfg_port
 
 let payload_of_req ?timeout req err_of =
   match C.request ?timeout [req] with
