@@ -43,7 +43,7 @@ type jobpack = string
 type jobenvs = (string * string) list
 
 let mAGIC = 0xd5c0
-let vERSION = 0x0001
+let vERSION = 0x0002
 let hDR_LEN = 128
 let hDR_LEN_STR = "128"
 
