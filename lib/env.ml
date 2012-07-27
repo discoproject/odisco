@@ -154,8 +154,12 @@ let inputs_from taskinfo input_reqs =
                          !req_id))) in
   let req_map = List.map
     (function
-      | Remote (id, replicas) -> make_req id replicas
-      | Local _ -> assert false
+      | Remote (id, []) ->
+        raise (E.Worker_failure (E.Invalid_task_input (id, "no specified replicas")))
+      | Remote (id, replicas) ->
+        make_req id replicas
+      | Local _ ->
+        assert false
     ) remotes in
   let remote_results = List.map
     (fun resp ->

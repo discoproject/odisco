@@ -11,6 +11,7 @@ type error =
   | Unexpected_msg of string
   | Unknown_stage of string
   | Invalid_input of string
+  | Invalid_task_input of int * string
   | Input_failure of (C.url * C.error) list
   | Input_response_failure of C.url * int
   | Unsupported_input_scheme of int * string
@@ -36,6 +37,8 @@ let string_of_error = function
     Printf.sprintf "unknown stage '%s' received" s
   | Invalid_input s ->
     Printf.sprintf "invalid input '%s'" s
+  | Invalid_task_input (id, s) ->
+    Printf.sprintf "invalid task input %d: %s" id s
   | Input_failure el ->
     let b = Buffer.create 256 in
     Buffer.add_string b "failure retrieving input:";
