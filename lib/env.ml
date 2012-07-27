@@ -43,7 +43,8 @@ let is_gzipped url =
 
 let filesize fname = (Unix.stat fname).Unix.st_size
 
-let contents_of_gzip fname =
+
+let gzip_content fname =
   let zsz = filesize fname in
   let inc = Gzip.open_in fname in
   let buf = Buffer.create zsz in
@@ -63,7 +64,7 @@ let gunzip_str s url =
     Filename.open_temp_file ~temp_dir:"/tmp" "tmp-" (Filename.basename url) in
   output_string toc s;
   close_out toc;
-  contents_of_gzip tname
+  gzip_content tname
 
 (* internal utilities to handle URLs pointing inside local Disco filesystem *)
 
@@ -197,7 +198,8 @@ let payloads_from taskinfo input_reqs =
   let local_results = List.map
     (function
       | Local (id, uri, fn) ->
-        id, U.Right (uri, contents_of_gzip fn)
+        let payload = if is_gzipped fn then gzip_content fn else U.contents_of_file fn
+        in id, U.Right (uri, payload)
       | Remote _ -> assert false
     ) locals in
   (* retrieve remote data over HTTP *)
