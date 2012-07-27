@@ -12,6 +12,7 @@ module File : sig
   val name : t -> string
   val fd : t -> Unix.file_descr
   val close : t -> unit
+  val size : t -> int
 end
 
 type input_req = Protocol.input_id * (* list of alternative replica locations *) Uri.t list

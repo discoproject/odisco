@@ -251,18 +251,9 @@ let next_master_msg ic =
 
 (* worker -> master *)
 
-type output_type =
-  | Labeled
-  | Persistent
-
-let string_of_output_type = function
-  | Labeled    -> "disco"
-  | Persistent -> "tag"
-
 type output = {
   label : int;
   filename : string;
-  otype : output_type;
 }
 
 type worker_msg =
@@ -274,7 +265,7 @@ type worker_msg =
   | W_message of string
   | W_error of string
   | W_fatal of string
-  | W_output of output
+  | W_output of output * int
   | W_done
 
 let prepare_msg = function
@@ -298,10 +289,10 @@ let prepare_msg = function
     "ERROR", J.to_string (J.String s)
   | W_fatal s ->
     "FATAL", J.to_string (J.String s)
-  | W_output o ->
+  | W_output (o, sz) ->
     let list = [ J.Int (Int64.of_int o.label);
                  J.String o.filename;
-                 J.String (string_of_output_type o.otype) ]
+                 J.Int (Int64.of_int sz) ]
     in "OUTPUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
     "DONE", J.to_string (J.String "")

@@ -59,14 +59,9 @@ val master_msg_name : master_msg -> string
 
 (** Messages from worker to Disco. *)
 
-type output_type =
-  | Labeled
-  | Persistent
-
 type output = {
   label : int;
   filename : string;
-  otype : output_type;
 }
 
 type worker_msg =
@@ -78,7 +73,7 @@ type worker_msg =
   | W_message of string
   | W_error of string
   | W_fatal of string
-  | W_output of output
+  | W_output of output * (* size *) int
   | W_done
 
 val protocol_version : string

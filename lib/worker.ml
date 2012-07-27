@@ -23,8 +23,7 @@ let setup_task_env ic oc taskinfo =
       (let file = N.open_output_file taskinfo label in
        let chan = Unix.out_channel_of_descr (N.File.fd file) in
        let output = { P.label = label;
-                      filename = N.File.name file;
-                      otype = P.Labeled } in
+                      filename = N.File.name file } in
        let out = { file; chan; output } in
        out_files := (label, out) :: !out_files;
        chan) in
@@ -51,12 +50,15 @@ let setup_task_env ic oc taskinfo =
 
 let close_files out_files =
   flush_all ();
-  let closer = fun (_, f) -> close_out f.chan; N.File.close f.file in
-  List.iter closer out_files
+  List.iter
+    (fun (_, f) -> close_out f.chan; N.File.close f.file
+    ) out_files
 
 let send_output_msg ic oc out_files =
-  let sender = fun (_, f) -> expect_ok ic oc (P.W_output f.output) in
-  List.iter sender out_files
+  List.iter
+    (fun (_, f) ->
+      expect_ok ic oc (P.W_output (f.output, (N.File.size f.file)))
+    ) out_files
 
 let urls_of_replicas replicas =
   List.map snd replicas

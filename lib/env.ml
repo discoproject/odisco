@@ -28,6 +28,10 @@ module File = struct
     (try Unix.close f.fd
      with Unix.Unix_error (Unix.EBADF, _, _) -> ());
     if f.delete_on_close then Unix.unlink f.name
+
+  let size f =
+    try (Unix.stat f.name).Unix.st_size
+    with Unix.Unix_error (_,_,_) -> 0
 end
 
 (* internal decompression utilities *)
