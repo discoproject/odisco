@@ -2,3 +2,5 @@ test_ddfs.byte
 test_ddfs.native
 test_jobpack.byte
 test_jobpack.native
+word_count.byte
+word_count.native

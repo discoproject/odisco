@@ -1,4 +1,5 @@
 <test_ddfs.ml>: package(sonet.httplib)
 <test_jobpack.ml>: package(sonet.httplib)
-<{test_task,word_count,test_ddfs}.{byte,native}>: package(camlzip), package(sonet.httplib), package(sonet.jsonlib)
+<word_count.ml>:debug
+<{test_task,word_count,test_ddfs}.{byte,native}>: package(camlzip), package(sonet.httplib), package(sonet.jsonlib), debug
 <test_jobpack.{byte,native}>: package(camlzip), package(sonet.httplib), package(sonet.jsonlib)

@@ -9,10 +9,10 @@ TEST_TASK = word_count
 all: byte native
 
 byte:
-	$(OCAMLC) -o $(TEST_TASK) $(TEST_TASK).ml
+	$(OCAMLC) -g -o $(TEST_TASK) $(TEST_TASK).ml
 
 native:
-	$(OCAMLOPT) -o $(TEST_TASK).opt $(TEST_TASK).ml
+	$(OCAMLOPT) -g -o $(TEST_TASK).opt $(TEST_TASK).ml
 
 clean:
 	-rm -f $(TEST_TASK){,.cmi,.cmo,.cmx,.o,.opt}
