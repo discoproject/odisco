@@ -9,6 +9,7 @@ type error =
   | Bad_msg of string * string * string
   | Unknown_msg of string * J.t
   | Unexpected_msg of string
+  | Unknown_stage of string
   | Invalid_input of string
   | Input_failure of (C.url * C.error) list
   | Input_response_failure of C.url * int
@@ -31,6 +32,8 @@ let string_of_error = function
     Printf.sprintf "unknown msg '%s' (\"%s\")" s (J.string_of_type v)
   | Unexpected_msg m ->
     Printf.sprintf "unexpected msg '%s'" m
+  | Unknown_stage s ->
+    Printf.sprintf "unknown stage '%s' received" s
   | Invalid_input s ->
     Printf.sprintf "invalid input '%s'" s
   | Input_failure el ->

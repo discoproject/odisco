@@ -1,5 +1,5 @@
-type label = private int
-type stage = private string
+type label = int
+type stage = string
 
 type grouping =
   | Split

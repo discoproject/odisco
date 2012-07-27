@@ -253,10 +253,14 @@ let get_taskinfo = function
   | P.M_taskinfo ti -> ti
   | m -> raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
 
-let start_protocol ic oc task =
+let start_protocol ic oc pipeline =
   expect_ok ic oc (P.W_worker (P.protocol_version, Unix.getpid ()));
   let taskinfo = get_taskinfo (P.send_request P.W_taskinfo ic oc) in
-  run ic oc taskinfo task
+  let stage = taskinfo.P.task_stage in
+  let task =
+    try List.assoc stage pipeline
+    with Not_found -> raise (E.Worker_failure (E.Unknown_stage stage))
+  in run ic oc taskinfo task
 
 let error_wrap ic oc f =
   let err s =
@@ -276,6 +280,6 @@ let error_wrap ic oc f =
         err ((Printf.sprintf "Uncaught exception: %s\n" (Printexc.to_string e))
              ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
 
-let start task =
+let start pipeline =
   Printexc.record_backtrace true;
-  error_wrap stdin stderr (fun () -> start_protocol stdin stderr task)
+  error_wrap stdin stderr (fun () -> start_protocol stdin stderr pipeline)
