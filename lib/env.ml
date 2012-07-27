@@ -137,8 +137,12 @@ let inputs_from taskinfo input_reqs =
   let local_results = List.map
     (function
       | Local (id, uri, fn) ->
-        U.dbg "Mapped %s to local file %s" (Uri.to_string uri) fn;
-        id, U.Right (uri, File.open_existing fn)
+        let url = Uri.to_string uri in
+        U.dbg "Mapped loc %s of input %d to local file %s" url id fn;
+        (try id, U.Right (uri, File.open_existing fn)
+         with Unix.Unix_error (ec, efn, es) ->
+           U.dbg " error opening %s: %s (%s %s)" fn (Unix.error_message ec) efn es;
+           id, U.Left (E.Input_local_failure (url, ec)))
       | Remote _ -> assert false
     ) locals in
   (* retrieve remote data over HTTP *)
@@ -173,7 +177,7 @@ let inputs_from taskinfo input_reqs =
           let status = Http.Response.status_code r in
           if status = 200
           then id, U.Right ((Uri.of_string url), f)
-          else id, U.Left (E.Input_response_failure (url, status))
+          else id, U.Left (E.Input_remote_failure (url, status))
     ) (C.request (List.map (fun e -> snd (snd e)) req_map)) in
   local_results @ remote_results
 
@@ -208,7 +212,7 @@ let payloads_from taskinfo input_reqs =
         | { C.request_id = id; C.response = C.Success (r, _); C.url = url } ->
           let status = Http.Response.status_code r in
           if status <> 200
-          then id, U.Left (E.Input_response_failure (url, status))
+          then id, U.Left (E.Input_remote_failure (url, status))
           else
             let buf = U.unopt (Http.Response.payload_buf r) in
             let content = Buffer.contents buf in

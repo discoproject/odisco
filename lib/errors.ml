@@ -13,7 +13,8 @@ type error =
   | Invalid_input of string
   | Invalid_task_input of int * string
   | Input_failure of (C.url * C.error) list
-  | Input_response_failure of C.url * int
+  | Input_local_failure of C.url * Unix.error
+  | Input_remote_failure of C.url * int
   | Unsupported_input_scheme of int * string
   | Invalid_port of string
   | Tag_retrieval_failure of string * C.error
@@ -46,7 +47,9 @@ let string_of_error = function
       Buffer.add_string b (Printf.sprintf " [%s: %s]" u (C.string_of_error e))
     ) el;
     Buffer.contents b
-  | Input_response_failure (u, sc) ->
+  | Input_local_failure (u, e) ->
+    Printf.sprintf "error accessing input '%s': %s" u (Unix.error_message e)
+  | Input_remote_failure (u, sc) ->
     Printf.sprintf "error response retrieving input '%s': status %d" u sc
   | Unsupported_input_scheme (id, s) ->
     Printf.sprintf "unsupported input scheme (%d): %s" id s
