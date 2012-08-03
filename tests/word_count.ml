@@ -139,7 +139,7 @@ module ReduceTask = struct
                 | 0 -> raise End_of_file
                 | read -> (Buffer.add_string si.buf (String.sub s 0 read);
                            get_record_end si)
-            end
+          end
       | ofs -> (* check if we should free memory *)
           let bufsize = Buffer.length si.buf in
             if bufsize > mAX_BUF_SIZE then begin
@@ -162,8 +162,9 @@ module ReduceTask = struct
 
   let task_done in_files disco =
     let sort_out = Filename.temp_file ~temp_dir:disco.Task.temp_dir "sorted-" "" in
-      disco.Task.log (Printf.sprintf "Starting sort (=>%s)\n" sort_out);
-      unix_sort !in_files sort_out disco;
+      disco.Task.log (Printf.sprintf "Starting sort (=>%s) of %d inputs \n" sort_out (List.length !in_files));
+      if List.length !in_files > 0 then
+        unix_sort !in_files sort_out disco;
       disco.Task.log "Sort done\n";
       let si = init_sorted_input (open_in sort_out) in
       let task_out = disco.Task.out_channel ~label:0 in
