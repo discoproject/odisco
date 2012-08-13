@@ -44,7 +44,7 @@ let parse_args () =
                    "    <label>,<size>,<url>,<url>,...";
                    "  The <OP> operation to perform is one of:";
                    "    -o <filename> | -c <filename> | -s"])) in
-  Arg.parse options (fun i -> inputs := P.input_of_string i :: !inputs) usage;
+  Arg.parse options (fun i -> inputs := P.job_input_of_string i :: !inputs) usage;
   let needs_info = function | Output _ -> true | Check _ -> false | Submit -> true in
   match !op, !name, !worker with
     | None, _, _ ->
@@ -70,8 +70,8 @@ let print_exception e =
       Printf.sprintf "bad jobpack: %s" (J.string_of_error je)
     | P.Pipeline_error pe ->
       Printf.sprintf "bad pipeline: %s" (P.string_of_pipeline_error pe)
-    | P.Input_error ie ->
-      Printf.sprintf "bad input: %s" (P.string_of_input_error ie)
+    | P.Job_input_error ie ->
+      Printf.sprintf "bad input: %s" (P.string_of_job_input_error ie)
     | Sys_error s ->
       Printf.sprintf "%s" s
     | Unix.Unix_error (ec, fn, _) ->
@@ -123,7 +123,7 @@ let chk_jobpack file =
 let submit_jobpack ?cfg ?timeout pack =
   let url = Api.url_for_job_submit (Cfg.safe_config cfg) in
   let err_of e = Failure (C.string_of_error e) in
-  match (Api.payload_of_req ?timeout (H.Post, C.Payload([url], Some pack), 0)
+  match (Api.payload_of_req ?timeout (H.Post, C.Payload([url], Some pack))
            err_of) with
     | U.Left e ->
       print_exception e

@@ -1,4 +1,4 @@
-type req = Http_client.meth * Http_client.request * Http_client.request_id
+type req = Http.meth * Http_client.request
 
 val url_for_job_submit : Cfg.config -> string
 

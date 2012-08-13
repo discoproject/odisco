@@ -16,8 +16,7 @@
     the other hand, will denote a specific running instance of the
     ODisco worker, that performs a specific computation (e.g. a map
     task or a reduce task).  The Unix counterpart is a process.  A
-    collection of Disco map and reduce tasks implement a {i Disco
-    job}.
+    collection of Disco tasks implement a {i Disco job}.
 
     Once ODisco is given control (via {!Worker.start}), it initiates
     the Disco worker protocol to Disco, and retrieves the inputs
@@ -41,6 +40,9 @@
     the exception, and generates the appropriate error message to
     Disco, and terminates the task with an error. *)
 
+(** Each task input has a label. *)
+type label = int
+
 (** The argument to every callback in the {!Task.TASK} implementation,
     containing task information as well functions to generate output
     or log messages. *)
@@ -63,12 +65,13 @@ type disco = {
 
   (* The following specify information about the current input for the
      task. *)
+  input_label : label;  (** the label for the current input *)
   input_url : string;   (** the url corresponding to the current input *)
   input_path : string;  (** the relative path of the current input file *)
   input_size : int;     (** the size of the current input in bytes *)
 
   (* The following specify output and log message functions for the task. *)
-  out_channel : label:int -> out_channel; (** the output channel selector *)
+  out_channel : label:label -> out_channel; (** the output channel selector *)
   log : string -> unit;                   (** log a message to Disco *)
 
   temp_dir : string;    (** a directory in which to create temporary files *)

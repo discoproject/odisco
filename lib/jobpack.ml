@@ -35,7 +35,7 @@ type jobdict = {
   owner : string;
   worker : string;
   pipeline : P.pipeline;
-  inputs : P.input list;
+  inputs : P.job_input list;
 }
 
 type jobpack = string
@@ -51,27 +51,27 @@ let hDR_LEN_STR = "128"
 
 let string_of_error = function
   | Invalid_magic i ->
-    Printf.sprintf "invalid magic %x (expected %x)" i mAGIC
+      Printf.sprintf "invalid magic %x (expected %x)" i mAGIC
   | Unsupported_version v ->
-    Printf.sprintf "unsupported version %x (expected %x)" v vERSION
+      Printf.sprintf "unsupported version %x (expected %x)" v vERSION
   | Invalid_header e ->
-    Printf.sprintf "invalid header (%s)" e
+      Printf.sprintf "invalid header (%s)" e
   | Invalid_jobdict_ofs o ->
-    Printf.sprintf "invalid jobdict offset (%d)" o
+      Printf.sprintf "invalid jobdict offset (%d)" o
   | Invalid_jobenvs_ofs o ->
-    Printf.sprintf "invalid jobenvs offset (%d)" o
+      Printf.sprintf "invalid jobenvs offset (%d)" o
   | Invalid_jobhome_ofs o ->
-    Printf.sprintf "invalid jobhome offset (%d)" o
+      Printf.sprintf "invalid jobhome offset (%d)" o
   | Invalid_jobdata_ofs o ->
-    Printf.sprintf "invalid jobdata offset (%d)" o
+      Printf.sprintf "invalid jobdata offset (%d)" o
   | Invalid_jobdict s ->
-    Printf.sprintf "invalid jobdict (%s)" s
+      Printf.sprintf "invalid jobdict (%s)" s
   | Invalid_jobenvs s ->
-    Printf.sprintf "invalid jobenvs (%s)" s
+      Printf.sprintf "invalid jobenvs (%s)" s
   | Invalid_pipeline s ->
-    Printf.sprintf "invalid pipeline (%s)" s
+      Printf.sprintf "invalid pipeline (%s)" s
   | Missing_jobdict_key k ->
-    Printf.sprintf "missing jobdict key %s" k
+      Printf.sprintf "missing jobdict key %s" k
 
 (* bytestring utilities *)
 
@@ -98,12 +98,12 @@ let extract_header pack =
   if String.length pack < hDR_LEN then
     raise (Jobpack_error
              (Invalid_header ("must be at least " ^ hDR_LEN_STR ^ " bytes")));
-  { magic = int16_at pack 0;
-    version = int16_at pack 2;
-    jobdict_ofs = int32_at pack 4;
-    jobenvs_ofs = int32_at pack 8;
-    jobhome_ofs = int32_at pack 12;
-    jobdata_ofs = int32_at pack 16 }
+  {magic = int16_at pack 0;
+   version = int16_at pack 2;
+   jobdict_ofs = int32_at pack 4;
+   jobenvs_ofs = int32_at pack 8;
+   jobhome_ofs = int32_at pack 12;
+   jobdata_ofs = int32_at pack 16}
 
 let validate_header hdr pack =
   if hdr.magic <> mAGIC then
@@ -133,9 +133,9 @@ let json_jobdict_of hdr pack =
     let json = JP.of_substring pack hdr.jobdict_ofs jobdict_len in
     JC.object_table_to_list (JC.to_object_table json)
   with
-    | JP.Parse_error e ->
+  | JP.Parse_error e ->
       raise (Jobpack_error (Invalid_jobdict (JP.string_of_error e)))
-    | JC.Json_conv_error e ->
+  | JC.Json_conv_error e ->
       raise (Jobpack_error (Invalid_jobdict (JC.string_of_error e)))
 
 let pREFIX = "prefix"
@@ -143,17 +143,17 @@ let oWNER  = "owner"
 let wORKER = "worker"
 let iNPUTS = "inputs"
 let pIPELINE = "pipeline"
-let jobdict_from_json dict =
-  List.iter (fun key ->
-               if not (List.mem_assoc key dict)
-               then raise (Jobpack_error (Missing_jobdict_key key))
-            ) [pREFIX; oWNER; wORKER; pIPELINE; iNPUTS];
+let jobdict_from_json dict = List.iter
+    (fun key ->
+      if not (List.mem_assoc key dict)
+      then raise (Jobpack_error (Missing_jobdict_key key))
+    ) [pREFIX; oWNER; wORKER; pIPELINE; iNPUTS];
   let name   = JC.to_string (List.assoc pREFIX dict) in
   let owner  = JC.to_string (List.assoc  oWNER dict) in
   let worker = JC.to_string (List.assoc wORKER dict) in
-  let inputs = List.map P.input_of_json (JC.to_list (List.assoc iNPUTS dict)) in
+  let inputs = List.map P.job_input_of_json (JC.to_list (List.assoc iNPUTS dict)) in
   let pipeline = P.pipeline_of_json (List.assoc pIPELINE dict) in
-  { name; owner; worker; inputs; pipeline }
+  {name; owner; worker; inputs; pipeline}
 
 let jobdict_of hdr pack =
   jobdict_from_json (json_jobdict_of hdr pack)
@@ -193,7 +193,7 @@ let zip_from_file f =
   zip
 
 let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs =
-  let i = List.map P.json_of_input inputs in
+  let i = List.map P.json_of_job_input inputs in
   let n = pREFIX, J.String name in
   let o = oWNER, J.String owner in
   let w = wORKER, J.String worker in

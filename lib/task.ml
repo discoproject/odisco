@@ -1,3 +1,5 @@
+type label = int
+
 type disco = {
   jobname : string;
   jobfile : string;
@@ -9,11 +11,12 @@ type disco = {
 
   hostname : string;
 
+  input_label : int;
   input_url : string;
   input_path : string;
   input_size : int;
 
-  out_channel : label:int -> out_channel;
+  out_channel : label:label -> out_channel;
   log : string -> unit;
 
   temp_dir : string;

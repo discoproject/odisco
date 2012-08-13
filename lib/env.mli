@@ -1,7 +1,7 @@
-(* This module captures the minimal interface needed from the worker
-   environment: i.e. the local filesystem and HTTP. *)
+(** This module captures the minimal interface needed from the worker
+    environment: i.e. the local filesystem and HTTP. *)
 
-(* file wrapper to distinguish between transient and persistent files *)
+(** file wrapper to distinguish between transient and persistent files *)
 
 module File : sig
   type t = {
@@ -15,22 +15,30 @@ module File : sig
   val size : t -> int
 end
 
-type input_req = Protocol.input_id * (* list of alternative replica locations *) Uri.t list
+type 'a input_req =
+    Protocol.input_id * 'a * (* list of replica locations *) Uri.t list
 
-(* download files at specified locations and return open file handles
+(** download files at specified locations and return open file handles
    to their local copies
-*)
-type input_resp = Protocol.input_id * (Errors.error, (Uri.t * File.t)) Utils.lr
-val inputs_from : Protocol.taskinfo -> input_req list -> input_resp list
+ *)
+type 'a input_resp =
+    Protocol.input_id * 'a * (Errors.error, (Uri.t * File.t)) Utils.lr
 
-(* retrieve uncompressed payloads from specified locations *)
-type payload_resp = Protocol.input_id * (Errors.error, (Uri.t * string)) Utils.lr
-val payloads_from : Protocol.taskinfo -> input_req list -> payload_resp list
+val inputs_from :
+    Protocol.taskinfo -> ('a input_req) list -> ('a input_resp) list
 
-(* parse an index payload *)
-val parse_index : string -> (int * (string * int)) list
+(** retrieve contents of specified urls without creating local file
+    copies of remote data.  this is typically used to retrieve index
+    files, which are assumed to be small enough to hold in memory
+ *)
 
-(* open a task output file *)
+type 'a payload_resp =
+    Protocol.input_id * 'a * (Errors.error, (Uri.t * string)) Utils.lr
+
+val payloads_from :
+    Protocol.taskinfo -> ('a input_req) list -> ('a payload_resp) list
+
+(** open a task output file *)
 val open_output_file : Protocol.taskinfo -> int -> File.t
 
 (** client-side environment *)

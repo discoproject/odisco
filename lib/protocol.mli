@@ -79,10 +79,7 @@ type worker_msg =
 val protocol_version : string
 
 (** One message exchange using the request-response protocol. *)
-
 val send_request : worker_msg -> in_channel -> out_channel -> master_msg
 
-(** Utilities to process the URIs used in the protocol. *)
-
-val norm_uri : taskinfo -> Uri.t -> Uri.t
-val scheme_of_uri : Uri.t -> scheme
+(** parse an index payload *)
+val parse_index : string -> (int * (string * int)) list

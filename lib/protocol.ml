@@ -2,7 +2,7 @@ module J = Json
 module JC = Json_conv
 module JP = Json_parse
 module E = Errors
-module U = Unix
+module U = Utils
 
 let protocol_version = "1.1"
 
@@ -45,26 +45,13 @@ let string_of_scheme = function
 
 let scheme_of_uri uri =
   match uri.Uri.scheme with
-    | None         -> File
-    | Some "dir"   -> Dir
-    | Some "disco" -> Disco
-    | Some "file"  -> File
-    | Some "raw"   -> Raw
-    | Some "http"  -> Http
-    | Some s       -> Other s
-
-let norm_uri ti uri =
-  let trans_auth =
-    match uri.Uri.authority with
-      | None -> None
-      | Some a -> Some { a with Uri.port = Some ti.task_disco_port }
-  in
-  match uri.Uri.scheme with
-    | None         -> { uri with Uri.scheme = Some "file" }
-    | Some "dir"
-    | Some "disco" -> { uri with Uri.scheme = Some "http";
-                        authority = trans_auth }
-    | Some _       -> uri
+  | None         -> File
+  | Some "dir"   -> Dir
+  | Some "disco" -> Disco
+  | Some "file"  -> File
+  | Some "raw"   -> Raw
+  | Some "http"  -> Http
+  | Some s       -> Other s
 
 type task_input_status =
   | Task_input_more
@@ -72,9 +59,10 @@ type task_input_status =
 
 let task_input_status_of_string s =
   match String.lowercase s with
-    | "more" -> Task_input_more
-    | "done" -> Task_input_done
-    | _      -> raise (E.Worker_failure (E.Unexpected_msg ("task_input ('" ^ s ^ "')")))
+  | "more" -> Task_input_more
+  | "done" -> Task_input_done
+  | _      -> raise (E.Worker_failure
+                       (E.Unexpected_msg ("task_input ('" ^ s ^ "')")))
 
 type input_status =
   | Input_ok
@@ -82,9 +70,10 @@ type input_status =
 
 let input_status_of_string s =
   match String.lowercase s with
-    | "ok"     -> Input_ok
-    | "failed" -> Input_failed
-    | _        -> raise (E.Worker_failure (E.Unexpected_msg ("inputs ('" ^ s ^ "')")))
+  | "ok"     -> Input_ok
+  | "failed" -> Input_failed
+  | _        -> raise (E.Worker_failure
+                         (E.Unexpected_msg ("inputs ('" ^ s ^ "')")))
 
 type input_id = int
 type replica_id = int
@@ -110,8 +99,8 @@ let master_msg_name = function
 let split s =
   let indx = (try Some (String.index s ' ') with _ -> None) in
   match indx with
-    | None -> s, ""
-    | Some i ->
+  | None -> s, ""
+  | Some i ->
       let slen = String.length s in
       (String.sub s 0 i), (String.sub s (i+1) (slen - i - 1))
 
@@ -127,8 +116,8 @@ let taskinfo_of b =
   let task_group_label = JC.to_int (List.hd group) in
   let task_group_node =
     match JC.to_string (List.nth group 1) with
-      | "none" -> None
-      | node   -> Some node in
+    | "none" -> None
+    | node   -> Some node in
   let task_id = JC.to_int (lookup "taskid") in
 
   let task_host = JC.to_string (lookup "host") in
@@ -139,10 +128,10 @@ let taskinfo_of b =
   let task_ddfs_root = JC.to_string (lookup "ddfs_data") in
   let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
                          task_stage task_id (Unix.time ())) in
-  { task_jobname; task_jobfile;
-    task_stage; task_group_label; task_group_node; task_id;
-    task_host; task_master; task_disco_port; task_put_port;
-    task_disco_root; task_ddfs_root; task_rootpath }
+  {task_jobname; task_jobfile;
+   task_stage; task_group_label; task_group_node; task_id;
+   task_host; task_master; task_disco_port; task_put_port;
+   task_disco_root; task_ddfs_root; task_rootpath}
 
 let task_input_of b =
   let msg = JC.to_list b in
@@ -155,12 +144,12 @@ let task_input_of b =
       let inp_status = input_status_of_string (JC.to_string (List.nth l 1)) in
       let replicas = JC.to_list (List.nth l 2) in
       let inps = List.map
-        (fun jlist ->
-          let l = JC.to_list jlist in
-          let rep_id = JC.to_int (List.hd l) in
-          let rep_url = Uri.of_string (JC.to_string (List.nth l 1)) in
-          (rep_id, rep_url)
-        ) replicas in
+          (fun jlist ->
+            let l = JC.to_list jlist in
+            let rep_id = JC.to_int (List.hd l) in
+            let rep_url = Uri.of_string (JC.to_string (List.nth l 1)) in
+            (rep_id, rep_url)
+          ) replicas in
       inp_id, inp_status, inps) in
   status, List.map mk_inp minps
 
@@ -168,7 +157,9 @@ let retry_of b =
   List.map
     (fun jlist ->
       let l = JC.to_list jlist in
-      JC.to_int (List.hd l), Uri.of_string (JC.to_string (List.nth l 1))
+      let rid = JC.to_int (List.hd l) in
+      let url = Uri.of_string (JC.to_string (List.nth l 1)) in
+      rid, url
     ) (JC.to_list b)
 
 (* The master should respond within this time. *)
@@ -181,6 +172,7 @@ let tIMEOUT = 5.0 *. 60.0 (* in seconds *)
    Both <tag> and <payload-len> are required to be less than 10
    characters each.
 *)
+
 let bUFLEN = 1024
 let rec get_raw_master_msg ic =
   let msg = ref None in
@@ -192,26 +184,27 @@ let rec get_raw_master_msg ic =
       let es, bt = Printexc.to_string e, Printexc.get_backtrace () in
       raise (E.Worker_failure (E.Protocol_parse_error (p, es ^ ":" ^ bt))) in
 
-  let payload, buf, ofs = Buffer.create bUFLEN, String.make bUFLEN '\000', ref 0 in
+  let payload, buf, ofs =
+    Buffer.create bUFLEN, String.make bUFLEN '\000', ref 0 in
   let return_msg () =
     (match !msg with
-      | Some (tag, len) ->
-        if len < Buffer.length payload
+     | Some (tag, len) ->
+         if len < Buffer.length payload
         then Some (tag, Buffer.sub payload 0 len)
-        else None
-      | None -> None) in
+         else None
+     | None -> None) in
 
   let ifd = Unix.descr_of_in_channel ic in
   let rec do_read () =
     let len = Unix.read ifd buf !ofs (String.length buf - !ofs) in
     match !msg with
-      | None ->
+    | None ->
         ofs := !ofs + len;
         if !ofs >= 22 || String.rcontains_from buf !ofs '\n' then begin
           Buffer.add_string payload (process_prefix buf);
           ofs := 0
         end
-      | Some (_, len) ->
+    | Some (_, len) ->
         assert (!ofs = 0);
         Buffer.add_substring payload buf 0 len in
 
@@ -222,9 +215,12 @@ let rec get_raw_master_msg ic =
     else raise (E.Worker_failure (E.Protocol_error "timeout")) in
   let rec loop () =
     match Unix.select [ifd] [] [ifd] (get_timeout ()) with
-      | _, _, [_] -> raise (E.Worker_failure (E.Protocol_error "socket error"))
-      | [_], _, _ -> do_read (); (match return_msg() with Some m -> m | None -> loop ())
-      | _, _, _ -> loop ()
+    | _, _, [_] ->
+        raise (E.Worker_failure (E.Protocol_error "socket error"))
+    | [_], _, _ ->
+        do_read (); (match return_msg() with Some m -> m | None -> loop ())
+    | _, _, _ ->
+        loop ()
   in loop ()
 
 let master_msg_of = function
@@ -242,11 +238,13 @@ let next_master_msg ic =
   Utils.dbg "<- %s: %s" msg payload;
   try master_msg_of (msg, JP.of_string payload)
   with
-    | JP.Parse_error e ->
-      raise (E.Worker_failure (E.Protocol_parse_error (payload, JP.string_of_error e)))
-    | JC.Json_conv_error e ->
-      raise (E.Worker_failure (E.Bad_msg (msg, payload, JC.string_of_error e)))
-    | e ->
+  | JP.Parse_error e ->
+      raise (E.Worker_failure
+               (E.Protocol_parse_error (payload, JP.string_of_error e)))
+  | JC.Json_conv_error e ->
+      raise (E.Worker_failure
+               (E.Bad_msg (msg, payload, JC.string_of_error e)))
+  | e ->
       raise e
 
 (* worker -> master *)
@@ -270,32 +268,32 @@ type worker_msg =
 
 let prepare_msg = function
   | W_worker (v, pid) ->
-    let p = Int64.of_int pid in
-    "WORKER", J.to_string (J.Object [| "version", J.String v; "pid", J.Int p |])
+      let p = Int64.of_int pid in
+      "WORKER", J.to_string (J.Object [|"version", J.String v; "pid", J.Int p|])
   | W_taskinfo ->
-    "TASK", J.to_string (J.String "")
+      "TASK", J.to_string (J.String "")
   | W_input_exclude exclude_list ->
-    let exclude = J.Array (Array.of_list (List.map JC.of_int exclude_list)) in
-    "INPUT", J.to_string (J.Array [| J.String "exclude"; exclude |])
+      let exclude = J.Array (Array.of_list (List.map JC.of_int exclude_list)) in
+      "INPUT", J.to_string (J.Array [|J.String "exclude"; exclude|])
   | W_input_include include_list ->
-    let incl = J.Array (Array.of_list (List.map JC.of_int include_list)) in
-    "INPUT", J.to_string (J.Array [| J.String "include"; incl |])
+      let incl = J.Array (Array.of_list (List.map JC.of_int include_list)) in
+      "INPUT", J.to_string (J.Array [|J.String "include"; incl|])
   | W_input_failure (input_id, rep_ids) ->
-    let failed_replicas = J.Array (Array.of_list (List.map JC.of_int rep_ids)) in
-    "INPUT_ERR", J.to_string (J.Array [| JC.of_int input_id; failed_replicas |])
+      let failed_reps = J.Array (Array.of_list (List.map JC.of_int rep_ids)) in
+      "INPUT_ERR", J.to_string (J.Array [|JC.of_int input_id; failed_reps|])
   | W_message s ->
-    "MSG", J.to_string (J.String s)
+      "MSG", J.to_string (J.String s)
   | W_error s ->
-    "ERROR", J.to_string (J.String s)
+      "ERROR", J.to_string (J.String s)
   | W_fatal s ->
-    "FATAL", J.to_string (J.String s)
+      "FATAL", J.to_string (J.String s)
   | W_output (o, sz) ->
-    let list = [ J.Int (Int64.of_int o.label);
-                 J.String o.filename;
-                 J.Int (Int64.of_int sz) ]
-    in "OUTPUT", J.to_string (J.Array (Array.of_list list))
+      let list = [ J.Int (Int64.of_int o.label);
+                   J.String o.filename;
+                   J.Int (Int64.of_int sz) ]
+      in "OUTPUT", J.to_string (J.Array (Array.of_list list))
   | W_done ->
-    "DONE", J.to_string (J.String "")
+      "DONE", J.to_string (J.String "")
 
 let send_msg m oc =
   let tag, payload = prepare_msg m in
@@ -308,3 +306,13 @@ let send_request m ic oc =
   send_msg m oc;
   flush oc;
   next_master_msg ic
+
+(* parsing the contents of an index *)
+
+let parse_index s =
+  let parse_line l =
+    match U.string_split l ' ' with
+    | label :: url :: size :: [] ->
+        (int_of_string label), (url, (int_of_string size))
+    | _ -> assert false
+  in List.map parse_line (U.string_split s '\n')

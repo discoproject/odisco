@@ -1,8 +1,9 @@
 module H = Http
 module C = Http_client
 module U = Utils
+module HC = Http_client.Make(struct type t = unit end)
 
-type req = C.meth * C.request * C.request_id
+type req = H.meth * C.request
 
 let url_for_job_submit cfg =
   Printf.sprintf "http://%s:%d/disco/job/new"
@@ -16,10 +17,10 @@ let url_for_tag_list cfg =
   Printf.sprintf "http://%s:%d/ddfs/tags"
     cfg.Cfg.cfg_master cfg.Cfg.cfg_port
 
-let payload_of_req ?timeout req err_of =
-  match C.request ?timeout [req] with
-    | {C.response = C.Success (r, _)} :: _ ->
+let payload_of_req ?timeout (meth, req)  err_of =
+  match HC.request ?timeout [(meth, req, ())] with
+  | {HC.response = C.Success (r, _)} :: _ ->
       U.Right (Buffer.contents (U.unopt (H.Response.payload_buf r)))
-    | {C.response = C.Failure ((_url, e), _)} :: _ ->
+  | {HC.response = C.Failure ((_url, e), _)} :: _ ->
       U.Left (err_of e)
-    | [] -> assert false
+  | [] -> assert false

@@ -17,12 +17,12 @@ module File = struct
   let open_new ~delete_on_close name =
     let flags = [Unix.O_RDWR; Unix.O_CREAT; Unix.O_TRUNC] in
     let fd = Unix.openfile name flags 0o640
-    in { name; fd; delete_on_close }
+    in {name; fd; delete_on_close}
 
   let open_existing name =
     let flags = [Unix.O_RDONLY] in
     let fd = Unix.openfile name flags 0o640
-    in { name; fd; delete_on_close = false }
+    in {name; fd; delete_on_close = false}
 
   let close f =
     (try Unix.close f.fd
@@ -42,7 +42,6 @@ let is_gzipped url =
   else String.sub url (len - 3) 3 = ".gz"
 
 let filesize fname = (Unix.stat fname).Unix.st_size
-
 
 let gzip_content fname =
   let zsz = filesize fname in
@@ -66,29 +65,38 @@ let gunzip_str s url =
   close_out toc;
   gzip_content tname
 
+let content_of local_file =
+  if is_gzipped local_file
+  then gzip_content local_file
+  else U.contents_of_file local_file
+
 (* internal utilities to handle URLs pointing inside local Disco filesystem *)
 
 let dISCO_PATH = "/disco/"
 let dDFS_PATH  = "/ddfs/"
 
 let is_known_path = function
-  | None -> false
+  | None   -> false
   | Some p -> U.is_prefix p dISCO_PATH || U.is_prefix p dDFS_PATH
 
-let find_local_file taskinfo replicas =
-  let localhost = taskinfo.P.task_host in
+let find_local taskinfo replicas =
+  (* A locally hosted url either has (i) a "file://" scheme, or (ii) a
+     host portion that matches the host the task is running on, and a
+     path with a known Disco prefix. *)
   let locals = List.filter
-    (fun u ->
-      ((match u.Uri.authority with
-        | None -> false
-        | Some a -> a.Uri.host = localhost
-       ) && (is_known_path u.Uri.path))
-      || u.Uri.scheme = Some "file"
-    ) replicas in
+      (fun u ->
+        (u.Uri.scheme = Some "file")
+         || ((match u.Uri.authority with
+              | None   -> false
+              | Some a -> a.Uri.host = taskinfo.P.task_host
+             ) && (is_known_path u.Uri.path)))
+      replicas in
   match locals with
-    | [] -> None
-    | l :: _ -> Some l
+  | []     -> None
+  | l :: _ -> Some l
 
+(* This assumes that the argument uri has been checked to be a local
+   file using 'find_local'. *)
 let local_file_of taskinfo uri =
   if uri.Uri.scheme = Some "file"
   then U.unopt uri.Uri.path
@@ -101,141 +109,153 @@ let local_file_of taskinfo uri =
       let p = U.strip_prefix uri_path dDFS_PATH in
       Filename.concat taskinfo.P.task_ddfs_root p
 
-type input_location =
-  | Remote of Http_client.request_id * Uri.t list
-  | Local of Http_client.request_id * Uri.t * (* filename *) string
+(* input retrieval utilities *)
 
-let try_localize taskinfo (request_id, replicas) =
-  match (find_local_file taskinfo replicas) with
-    | None -> Remote (request_id, replicas)
-    | Some l -> Local (request_id, l, local_file_of taskinfo l)
+type 'a input_location =
+  | Remote of P.input_id * 'a * Uri.t list
+  | Local  of P.input_id * 'a * Uri.t * (* filename *) string
+
+let try_localize taskinfo (iid, cid, replicas) =
+  match (find_local taskinfo replicas) with
+  | None   -> Remote (iid, cid, replicas)
+  | Some l -> Local  (iid, cid, l, local_file_of taskinfo l)
 
 (* create a local filename for a remote file *)
 
 let local_filename taskinfo uri =
   let basename =
     match uri.Uri.path, uri.Uri.authority with
-      | None, None   | Some "", None ->
+    | None, None   | Some "", None ->
         "remote_file"
-      | None, Some a | Some "", Some a ->
+    | None, Some a | Some "", Some a ->
         a.Uri.host
-      | Some p, None ->
+    | Some p, None ->
         Filename.basename p
-      | Some p, Some a ->
+    | Some p, Some a ->
         a.Uri.host ^ "_" ^ Filename.basename p
   in Filename.concat taskinfo.P.task_rootpath basename
 
 (* retrieval requests *)
 
-type input_req = Http_client.request_id * Uri.t list
+type 'a input_req = P.input_id * 'a * Uri.t list
 
-(* download files at specified locations and return open file handles
-   to their local copies *)
-
-type input_resp = Http_client.request_id * (Errors.error, (Uri.t * File.t)) U.lr
-
-let inputs_from taskinfo input_reqs =
-  let locals, remotes = List.partition
+(* helper to partition the specified inputs into locally available and
+   remote inputs *)
+let partition_inputs taskinfo input_reqs =
+  List.partition
     (function Local _ -> true | Remote _ -> false)
-    (List.map (try_localize taskinfo) input_reqs) in
-  (* local data *)
+    (List.map (try_localize taskinfo) input_reqs)
+
+(* download (if needed) data at specified locations and return open
+   file handles to their local copies *)
+
+type 'a input_resp = P.input_id * 'a * (Errors.error, (Uri.t * File.t)) U.lr
+
+let inputs_from taskinfo (type cid_type) input_reqs =
+  let locals, remotes = partition_inputs taskinfo input_reqs in
+  (* open files for local data *)
   let local_results = List.map
-    (function
-      | Local (id, uri, fn) ->
-        let url = Uri.to_string uri in
-        U.dbg "Mapped loc %s of input %d to local file %s" url id fn;
-        (try id, U.Right (uri, File.open_existing fn)
-         with Unix.Unix_error (ec, efn, es) ->
-           U.dbg " error opening %s: %s (%s %s)" fn (Unix.error_message ec) efn es;
-           id, U.Left (E.Input_local_failure (url, ec)))
-      | Remote _ -> assert false
-    ) locals in
-  (* retrieve remote data over HTTP *)
-  let req_id = ref 0 in
-  let make_req id replicas =
-    incr req_id;
+      (function
+        | Local (iid, cid, uri, fn) ->
+            let url = Uri.to_string uri in
+            U.dbg "Mapped loc %s of input %d to local file %s" url iid fn;
+            (try iid, cid, U.Right (uri, File.open_existing fn)
+             with Unix.Unix_error (ec, efn, es) ->
+               U.dbg " error opening %s: %s (%s %s)"
+                 fn (Unix.error_message ec) efn es;
+               iid, cid, U.Left (E.Input_local_failure (url, ec)))
+        | Remote _ ->
+            assert false
+      ) locals in
+  (* retrieve remote data over HTTP into local files *)
+  let module HC = C.Make(struct type t = P.input_id * cid_type * File.t end) in
+  let make_req iid cid replicas =
     let f = (File.open_new ~delete_on_close:true
                (local_filename taskinfo (List.hd replicas))) in
     U.dbg "Attempting download to %s of [%s]"
       (File.name f) (String.concat " " (List.map Uri.to_string replicas));
-    (!req_id, ((f, id), (Http.Get,
-                         C.FileRecv ((List.map Uri.to_string replicas), f.File.fd),
-                         !req_id))) in
-  let req_map = List.map
-    (function
-      | Remote (id, []) ->
-        raise (E.Worker_failure (E.Invalid_task_input (id, "no specified replicas")))
-      | Remote (id, replicas) ->
-        make_req id replicas
-      | Local _ ->
-        assert false
-    ) remotes in
+    Http.Get,
+    C.FileRecv ((List.map Uri.to_string replicas), f.File.fd),
+    (iid, cid, f) in
+  let reqs = List.map
+      (function
+        | Remote (iid, cid, replicas) ->
+            make_req iid cid replicas
+        | Local _ ->
+            assert false
+      ) remotes in
   let remote_results = List.map
-    (fun resp ->
-      match resp with
-        | { C.request_id = rq_id; response = C.Failure (e, rest) } ->
-          let f, id = fst (List.assoc rq_id req_map) in
-          File.close f;
-          id, U.Left (E.Input_failure (e :: rest))
-        | { C.request_id = rq_id; C.response = C.Success (r, _); C.url = url } ->
-          let f, id = fst (List.assoc rq_id req_map) in
-          let status = Http.Response.status_code r in
-          if status = 200
-          then id, U.Right ((Uri.of_string url), f)
-          else id, U.Left (E.Input_remote_failure (url, status))
-    ) (C.request (List.map (fun e -> snd (snd e)) req_map)) in
-  local_results @ remote_results
+      (fun resp ->
+        match resp with
+        | {HC.request_id = (iid, cid, f); response = C.Failure (e, rest)} ->
+            File.close f;
+            iid, cid, U.Left (E.Input_failure (e :: rest))
+        | {HC.request_id = (iid, cid, f); response = C.Success (r, _); url} ->
+            let status = Http.Response.status_code r in
+            if status = 200
+            then iid, cid, U.Right ((Uri.of_string url), f)
+            else begin
+              File.close f;
+              iid, cid, U.Left (E.Input_remote_failure (url, status))
+            end
+      ) (HC.request reqs) in
+  (local_results @ remote_results)
 
-(* retrieve uncompressed payloads from specified locations *)
+(* a similar function to the above, which directly returns the data
+   contents at the specified locations and does not create local files
+   to copy remote data.  similar, but different enough that the common
+   portions cannot be neatly extracted due to typing issues.  *)
 
-type payload_resp = Http_client.request_id * (Errors.error, (Uri.t * string)) U.lr
+type 'a payload_resp =
+    Protocol.input_id * 'a * (Errors.error, (Uri.t * string)) Utils.lr
 
-let payloads_from taskinfo input_reqs =
-  let locals, remotes = List.partition
-    (function Local _ -> true | Remote _ -> false)
-    (List.map (try_localize taskinfo) input_reqs) in
-  (* local data *)
+let payloads_from taskinfo (type cid_type) input_reqs =
+  let locals, remotes = partition_inputs taskinfo input_reqs in
+  (* read contents of local files *)
   let local_results = List.map
-    (function
-      | Local (id, uri, fn) ->
-        let payload = if is_gzipped fn then gzip_content fn else U.contents_of_file fn
-        in id, U.Right (uri, payload)
-      | Remote _ -> assert false
-    ) locals in
-  (* retrieve remote data over HTTP *)
-  let make_req id replicas =
-    (id, (Http.Get, C.Payload (List.map Uri.to_string replicas, None), id)) in
-  let req_map = List.map
-    (function
-      | Remote (id, replicas) -> make_req id replicas
-      | Local _ -> assert false
-    ) remotes in
+      (function
+        | Local (iid, cid, uri, fn) ->
+            let url = Uri.to_string uri in
+            U.dbg "Mapped loc %s of input %d to local file %s" url iid fn;
+            (try iid, cid, U.Right (uri, content_of fn)
+             with Unix.Unix_error (ec, efn, es) ->
+               U.dbg " error opening %s: %s (%s %s)"
+                 fn (Unix.error_message ec) efn es;
+               iid, cid, U.Left (E.Input_local_failure (url, ec)))
+        | Remote _ ->
+            assert false
+      ) locals in
+  (* retrieve remote payload *)
+  let module HC = C.Make(struct type t = P.input_id * cid_type end) in
+  let make_req iid cid replicas =
+    U.dbg "Attempting retrieval of [%s]"
+      (String.concat " " (List.map Uri.to_string replicas));
+    Http.Get, C.Payload ((List.map Uri.to_string replicas), None), (iid, cid) in
+  let reqs = List.map
+      (function
+        | Remote (iid, cid, replicas) ->
+            make_req iid cid replicas
+        | Local _ ->
+            assert false
+      ) remotes in
   let remote_results = List.map
-    (fun resp ->
-      match resp with
-        | { C.request_id = id; response = C.Failure (e, rest) } ->
-          id, U.Left (E.Input_failure (e :: rest))
-        | { C.request_id = id; C.response = C.Success (r, _); C.url = url } ->
-          let status = Http.Response.status_code r in
-          if status <> 200
-          then id, U.Left (E.Input_remote_failure (url, status))
-          else
-            let buf = U.unopt (Http.Response.payload_buf r) in
-            let content = Buffer.contents buf in
-            let payload = if is_gzipped url then gunzip_str content url else content in
-            id, U.Right ((Uri.of_string url), payload)
-    ) (C.request (List.map snd req_map)) in
+      (fun resp ->
+        match resp with
+        | {HC.request_id = (iid, cid); response = C.Failure (e, rest)} ->
+            iid, cid, U.Left (E.Input_failure (e :: rest))
+        | {HC.request_id = (iid, cid); response = C.Success (r, _); url} ->
+            let status = Http.Response.status_code r in
+            if status = 200
+            then begin
+              let buf = U.unopt (Http.Response.payload_buf r) in
+              let content = Buffer.contents buf in
+              let payload =
+                if is_gzipped url then gunzip_str content url else content
+              in iid, cid, U.Right ((Uri.of_string url), payload)
+            end else
+              iid, cid, U.Left (E.Input_remote_failure (url, status))
+      ) (HC.request reqs) in
   local_results @ remote_results
-
-(* parse an index payload *)
-
-let parse_index s =
-  let parse_line l =
-    match U.string_split l ' ' with
-      | label :: url :: size :: [] ->
-        (int_of_string label), (url, (int_of_string size))
-      | _ -> assert false
-  in List.map parse_line (U.string_split s '\n')
 
 (* open a task output file *)
 
