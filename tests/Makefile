@@ -6,9 +6,15 @@ TEST_TASK = word_count
 
 .PHONY: all byte native clean
 
-all: byte native
+all: byte
 
-byte:
+wc_t.mli wc_t.ml: wc.atd
+	atdgen -t $^
+
+wc_b.mli wc_b.ml: wc.atd
+	atdgen -b $^
+
+byte: wc_t.mli wc_t.ml wc_b.mli wc_b.ml
 	$(OCAMLC) -g -o $(TEST_TASK) $(TEST_TASK).ml
 
 native:

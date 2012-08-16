@@ -1,9 +1,4 @@
-let char_in_string s c =
-  let len = String.length s in
-  let rec loop i = (if i = len then false
-                else if s.[i] = c then true
-                else loop (i + 1)) in
-    loop 0
+(* Basic functions to grep words out from ascii text files. *)
 
 let string_split s c =
   let slen = String.length s in
@@ -12,7 +7,7 @@ let string_split s c =
     then List.rev (List.filter (fun s -> String.length s > 0) acc)
     else (try
             let pivot = String.index_from s cursor c in
-              iter (pivot + 1) (String.sub s cursor (pivot - cursor) :: acc)
+            iter (pivot + 1) (String.sub s cursor (pivot - cursor) :: acc)
           with Not_found ->
             iter slen (String.sub s cursor (slen - cursor) :: acc))
   in iter 0 []
@@ -40,152 +35,106 @@ let strip_word = function
           | 0, _ when e = len - 1 -> w
           | _ -> String.sub w s (e - s + 1)
 
-let output oc ~key value =
-  output_string oc (Printf.sprintf "%s\xff%s\x00" key value)
+(* Common utilities for task stages *)
+
+let mAX_LABEL = 10
+
+type t = {
+    count : int ref;
+    dict : (string, int) Hashtbl.t;
+    outputs : (Pipeline.label, Bi_outbuf.t) Hashtbl.t;
+}
+
+let task_init _ = {
+  count = ref 0;
+  dict = (Hashtbl.create (1024 * 1024) : (string, int) Hashtbl.t);
+  outputs = (Hashtbl.create mAX_LABEL
+               : (Pipeline.label, Bi_outbuf.t) Hashtbl.t);
+}
+
+let label_of : string -> Pipeline.label = fun word ->
+  let h = ref 0 in
+  String.iter (fun c -> h := !h + Char.code c) word;
+  !h mod mAX_LABEL
+
+let output_of init disco label =
+  try Hashtbl.find init.outputs label
+  with Not_found ->
+    let o = Bi_outbuf.create_channel_writer (disco.Task.out_channel ~label)
+    in Hashtbl.add init.outputs label o;
+    o
+
+let task_done init disco =
+  (* We put intermediate word counts into biniou files. *)
+  Hashtbl.iter
+    (fun k v ->
+      Wc_b.write_wc (output_of init disco (label_of k)) (k, v);
+    ) init.dict;
+  Hashtbl.iter (fun _l o -> Bi_outbuf.flush_channel_writer o) init.outputs;
+  disco.Task.log (Printf.sprintf "Mapped %d entries into %d files.\n"
+                 !(init.count) (Hashtbl.length init.outputs))
 
 module MapTask = struct
   module T = Task
-  type init = int ref * (string, int) Hashtbl.t
 
-  let task_init _ =
-    ref 0, (Hashtbl.create (1024 * 1024) : (string, int) Hashtbl.t)
+  type init = t
 
-  let task_process (cnt, tbl) disco in_chan =
+  let task_init = task_init
+
+  let task_process init disco in_chan =
     disco.T.log (Printf.sprintf
                    "Mapping %s (%d bytes) with label %d on %s ...\n"
                    disco.T.input_url disco.T.input_size
                    disco.T.group_label disco.T.hostname);
+
+    (* The inputs are raw data files, so we need to parse them
+       ourselves. *)
     let rec loop () =
-      List.iter (fun w ->
-                   match strip_word w with
-                     | "" ->
-                       ()
-                     | key ->
-                       let v = try Hashtbl.find tbl key with Not_found -> 0 in
-                       Hashtbl.replace tbl key (v + 1);
-                       incr cnt
-                ) (string_split (input_line in_chan) ' ');
+      List.iter
+        (fun w ->
+          match strip_word w with
+          | "" ->
+              ()
+          | key ->
+              let v = try Hashtbl.find init.dict key with Not_found -> 0 in
+              Hashtbl.replace init.dict key (v + 1);
+              incr init.count
+        ) (string_split (input_line in_chan) ' ');
       loop ()
     in try loop () with End_of_file -> ()
 
-  let task_done (cnt, tbl) disco =
-    Hashtbl.iter
-      (fun k v ->
-        output (disco.T.out_channel ~label:0) k (Printf.sprintf "%d" v)
-      ) tbl;
-    disco.T.log (Printf.sprintf "Mapped %d entries.\n" !cnt)
+  let task_done = task_done
 end
+
+let sHUFFLE_BUFFER_SIZE = 5*1024*1024
 
 module ReduceTask = struct
   module T = Task
-  type init = string list ref
 
-  let task_init _ = ref ([] : string list)
+  type init = t
 
-  let task_process in_files disco _ =
-    in_files := disco.Task.input_path :: !in_files
+  let task_init = task_init
 
-  (* Invoke external sort *)
-  let unix_sort in_files out_file disco =
-    let sort_env = Array.append (Unix.environment ()) [|"LC_ALL=C"|] in
-    let sort_args = Array.of_list (["-z";
-                                    "-t"; "\xff";
-                                    "-k"; "1,1";
-                                    "-T"; disco.Task.temp_dir;
-                                    "-S"; "15%";
-                                    "-o"; out_file]
-                                   @ in_files) in
-      match Unix.fork () with
-        | 0 ->
-            Unix.execvpe "sort" sort_args sort_env
-        | child ->
-             (let _, stat = Unix.waitpid [ Unix.WUNTRACED ] child in
-                match stat with
-                  | Unix.WEXITED 0 -> ()
-                  | Unix.WEXITED code ->
-                      failwith (Printf.sprintf "sort failure: exit %d" code)
-                  | Unix.WSIGNALED sg ->
-                      failwith (Printf.sprintf "sort failure: signal %d" sg)
-                  | Unix.WSTOPPED sg ->
-                      failwith (Printf.sprintf "sort failure: stop %d" sg)
-             )
+  let task_process init disco in_chan =
+    disco.T.log (Printf.sprintf
+                   "Mapping %s (%d bytes) with label %d on %s ...\n"
+                   disco.T.input_url disco.T.input_size
+                   disco.T.group_label disco.T.hostname);
 
-  type sorted_input = {
-    chan : in_channel;
-    buf : Buffer.t;
-    mutable next_record : int;
-    mutable records_parsed : int;
-  }
-  let rECORD_END    = '\x00'
-  let lINE_BUF_SIZE = 2 * 2 * 1024 * 1024
-  let bUF_SIZE  = 2 * 128 * 1024 * 1024
-  let mAX_BUF_SIZE = 2 * 512 * 1024 * 1024
+    (* The intermediate results are in biniou files. *)
+    let inp = Bi_inbuf.from_channel in_chan in
+    let rec loop () =
+      let (k, v) = Wc_b.read_wc inp in
+      let cnt = try Hashtbl.find init.dict k with Not_found -> 0 in
+      Hashtbl.replace init.dict k (v + cnt);
+      incr init.count;
+      loop()
+    in try loop () with End_of_file -> ()
 
-  let init_sorted_input input =
-    {chan = input; buf = Buffer.create bUF_SIZE; next_record = 0; records_parsed = 0}
-
-  let rec get_record_end_loop buf ofs =
-    if Buffer.nth buf ofs = rECORD_END then ofs
-    else get_record_end_loop buf (ofs + 1)
-
-  let rec get_record_end si =
-    let next_record = si.next_record in
-    match (try get_record_end_loop si.buf next_record
-           with Invalid_argument _ -> -1)
-    with
-      | -1 ->  (* reload buffer and retry *)
-          let s = String.create lINE_BUF_SIZE in begin
-              match input si.chan s 0 lINE_BUF_SIZE with
-                | 0 -> raise End_of_file
-                | read -> (Buffer.add_string si.buf (String.sub s 0 read);
-                           get_record_end si)
-          end
-      | ofs -> (* check if we should free memory *)
-          let bufsize = Buffer.length si.buf in
-            if bufsize > mAX_BUF_SIZE then begin
-              let tmp = Buffer.sub si.buf next_record (bufsize - next_record) in
-                Buffer.reset si.buf;
-                Buffer.add_string si.buf tmp;
-                si.next_record <- 0;
-                ofs - next_record
-            end else ofs
-
-  let get_record si =
-    let ofs = get_record_end si in
-    let r = (if ofs > si.next_record
-             then Buffer.sub si.buf si.next_record (ofs - si.next_record)
-             else "")
-    in
-      si.next_record <- ofs + 1;
-      si.records_parsed <- si.records_parsed + 1;
-      r
-
-  let task_done in_files disco =
-    let sort_out = Filename.temp_file ~temp_dir:disco.Task.temp_dir "sorted-" "" in
-      disco.Task.log (Printf.sprintf "Starting sort (=>%s) of %d inputs \n" sort_out (List.length !in_files));
-      if List.length !in_files > 0 then
-        unix_sort !in_files sort_out disco;
-      disco.Task.log "Sort done\n";
-      let si = init_sorted_input (open_in sort_out) in
-      let task_out = disco.Task.out_channel ~label:0 in
-      let rec loop word count =
-        let kv = string_split (get_record si) '\xff' in
-        match List.length kv with
-          | 0 | 1 -> loop word count
-          | _ ->
-            let k, v = (List.hd kv), int_of_string (List.nth kv 1) in
-            if k = word then loop word (count + v)
-            else if word = "" then loop k v
-            else begin
-              output task_out word (Printf.sprintf "%d" count);
-              loop k v
-            end
-      in
-        try loop "" 0
-        with End_of_file ->
-          disco.Task.log (Printf.sprintf "Reduced %d records\n" si.records_parsed)
+  let task_done = task_done
 end
 
 let _ =
-  Worker.start [("map",    (module MapTask : Task.TASK));
-                ("reduce", (module ReduceTask : Task.TASK))]
+  Worker.start [("map",     (module MapTask     : Task.TASK));
+                ("shuffle", (module ReduceTask  : Task.TASK));
+                ("reduce",  (module ReduceTask  : Task.TASK))]
