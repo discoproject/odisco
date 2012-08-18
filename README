@@ -25,6 +25,12 @@ The library has the following dependencies:
   To uninstall:
   $ cd sonet && make uninstall
 
+The tests have the following dependencies:
+
+. atd    (https://github.com/MyLifeLabs/atd) / libatd-ocaml-dev (Debian/Ubuntu) / godi-atd (Godi)
+. atdgen (https://github.com/MyLifeLabs/atdgen) / libatdgen-ocaml-dev (Debian/Ubuntu) / godi-atdgen (Godi)
+. biniou (https://github.com/mjambon/biniou) / libbiniou-ocaml-dev (Debian/Ubuntu) / godi-biniou (Godi)
+
 Building:
 ---------
 
