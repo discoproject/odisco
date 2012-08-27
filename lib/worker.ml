@@ -206,9 +206,13 @@ let download taskinfo inputs =
                  ) splits in
   let inp_reqs = List.concat (List.map make_reqs inputs) in
   let n_inp_reqs = List.length inp_reqs in
-  U.dbg "Fetching %d input files ..." n_inp_reqs;
-  let downloads = N.inputs_from taskinfo inp_reqs in
-  U.dbg "... input files fetched.";
+  let downloads =
+    if n_inp_reqs > 0 then begin
+      U.dbg "Fetching %d input files ..." n_inp_reqs;
+      let downloads = N.inputs_from taskinfo inp_reqs in
+      U.dbg "... input files fetched.";
+      downloads
+    end else [] in
   assert (List.length downloads = n_inp_reqs);
   let module SplitDownloads =
     Map.Make (struct type t = resolved_input let compare = compare end) in
