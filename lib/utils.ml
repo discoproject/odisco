@@ -84,21 +84,37 @@ let strip_word = function
 
 (* debug logging *)
 
-let verbose = ref true
-let logger = ref (fun _s -> ())
+let log_print s =
+  let tm = Unix.localtime (Unix.gettimeofday ()) in
+  Printf.sprintf "%d:%02d:%02d-%02d:%02d:%02d: %s\n%!"
+    (tm.Unix.tm_year + 1900) tm.Unix.tm_mon tm.Unix.tm_mday
+    tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec
+    s
 
-let init_logger task_rootpath =
+let verbose = ref true
+
+let log_buf = ref None
+let logger =
+  match !verbose with
+  | false ->
+      ref (fun _s -> ())
+  | true ->
+      let buf = Buffer.create 2048 in
+      log_buf := Some buf;
+      ref (fun s -> Buffer.add_string buf (log_print s))
+
+let init_logfile task_rootpath =
   if !verbose then begin
     let log = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
                  0o660 (Filename.concat task_rootpath "oc.dbg")) in
-    logger :=
-      (fun s ->
-        let tm = Unix.localtime (Unix.gettimeofday ()) in
-        Printf.fprintf log "%d:%02d:%02d-%02d:%02d:%02d: %s\n%!"
-          (tm.Unix.tm_year + 1900) tm.Unix.tm_mon tm.Unix.tm_mday
-          tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec
-          s
-      )
+    (match !log_buf with
+     | None ->
+         ()
+     | Some buf ->
+         Printf.fprintf log "%s" (Buffer.contents buf);
+         log_buf := None
+    );
+    logger := (fun s -> Printf.fprintf log "%s" (log_print s))
   end
 
 let dbg fmt = Printf.ksprintf !logger fmt

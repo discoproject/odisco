@@ -170,7 +170,7 @@ let run () =
            print_usage ()
       )
   in
-  U.init_logger "/tmp";
+  U.init_logfile "/tmp";
   process_args 1
 
 let _ =
