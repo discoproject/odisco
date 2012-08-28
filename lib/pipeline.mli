@@ -5,10 +5,10 @@ type label = int
 
 type grouping =
   | Split
-  | Join_label
-  | Join_node
-  | Join_node_label
-  | Join_all
+  | Group_label
+  | Group_node
+  | Group_node_label
+  | Group_all
 
 val grouping_of_string : string -> grouping
 val string_of_grouping : grouping -> string

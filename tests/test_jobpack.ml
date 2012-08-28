@@ -39,7 +39,7 @@ let parse_args () =
                    "  The <pipeline> is expressed as a sequence of stages:";
                    "    <stage>,<group>:<stage>,<group>:...";
                    "    where <stage> is a string, and <group> is one of the following:";
-                   "        split, join_node, join_label, join_node_label, join_all";
+                   "        split, group_node, group_label, group_node_label, group_all";
                    "  Each input is specified as:";
                    "    <label>,<size>,<url>,<url>,...";
                    "  The <OP> operation to perform is one of:";

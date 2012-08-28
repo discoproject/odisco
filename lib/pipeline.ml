@@ -9,10 +9,10 @@ type stage = string
 
 type grouping =
   | Split
-  | Join_label
-  | Join_node
-  | Join_node_label
-  | Join_all
+  | Group_label
+  | Group_node
+  | Group_node_label
+  | Group_all
 
 type pipeline = (stage * grouping) list
 
@@ -72,19 +72,19 @@ let string_of_job_input_error = function
 (* pipeline utilities *)
 
 let grouping_of_string = function
-  | "split"           -> Split
-  | "join_label"      -> Join_label
-  | "join_node"       -> Join_node
-  | "join_node_label" -> Join_node_label
-  | "join_all"        -> Join_all
-  | g                 -> raise (Pipeline_error (Invalid_grouping g))
+  | "split"            -> Split
+  | "group_label"      -> Group_label
+  | "group_node"       -> Group_node
+  | "group_node_label" -> Group_node_label
+  | "group_all"        -> Group_all
+  | g                  -> raise (Pipeline_error (Invalid_grouping g))
 
 let string_of_grouping = function
-  | Split           -> "split"
-  | Join_label      -> "join_label"
-  | Join_node       -> "join_node"
-  | Join_node_label -> "join_node_label"
-  | Join_all        -> "join_all"
+  | Split            -> "split"
+  | Group_label      -> "group_label"
+  | Group_node       -> "group_node"
+  | Group_node_label -> "group_node_label"
+  | Group_all        -> "group_all"
 
 let is_valid_pipeline pipe =
   let module StringSet =
