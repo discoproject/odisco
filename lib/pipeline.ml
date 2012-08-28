@@ -14,15 +14,6 @@ type grouping =
 
 type pipeline = (stage * grouping) list
 
-type data_size = int
-
-type job_input = label * data_size * Uri.t list
-
-type task_input =
-  | Data of label * Uri.t
-  | Dir_indexed of label * Uri.t
-  | Dir of Uri.t
-
 type pipeline_error =
   | Invalid_grouping of string
   | Invalid_pipeline_json of J.t
@@ -30,16 +21,6 @@ type pipeline_error =
   | Invalid_pipeline of string
 
 exception Pipeline_error of pipeline_error
-
-type job_input_error =
-  | Invalid_job_input_json of J.t
-  | Invalid_job_input_string of string
-  | Invalid_job_input_label of string
-  | Invalid_job_input_size of string
-  | Invalid_job_input_url of string
-  | Invalid_job_input of string
-
-exception Job_input_error of job_input_error
 
 (* error printing utilities *)
 
@@ -52,20 +33,6 @@ let string_of_pipeline_error = function
       Printf.sprintf "'%s' is not a valid pipeline stage" s
   | Invalid_pipeline e ->
       Printf.sprintf "invalid pipeline (%s)" e
-
-let string_of_job_input_error = function
-  | Invalid_job_input_json j ->
-      Printf.sprintf "'%s' is not a valid input in json" (J.to_string j)
-  | Invalid_job_input_string i ->
-      Printf.sprintf "'%s' is not a valid input specification" i
-  | Invalid_job_input_label l ->
-      Printf.sprintf "'%s' is not a valid input label" l
-  | Invalid_job_input_size z ->
-      Printf.sprintf "'%s' is not a valid input size" z
-  | Invalid_job_input_url u ->
-      Printf.sprintf "'%s' is not a valid input url" u
-  | Invalid_job_input e ->
-      Printf.sprintf "invalid input (%s)" e
 
 (* pipeline utilities *)
 
@@ -121,53 +88,12 @@ let pipeline_of_string p =
     | _ -> raise (Pipeline_error (Invalid_pipeline_stage s)) in
   List.map parse_stage (U.string_split p ':')
 
-(* job input utilities *)
-
-let raw_job_input_of_json i =
-  let it = JC.to_list i in
-  match it with
-  | il :: is :: iurls :: [] ->
-      let label, size = JC.to_int il, JC.to_int is in
-      let urls = List.map (fun u -> Uri.of_string (JC.to_string u)
-                          ) (JC.to_list iurls) in
-      label, size, urls
-  | _ ->
-      raise (Job_input_error (Invalid_job_input_json i))
-
-let job_input_of_json i =
-  try raw_job_input_of_json i
-  with
-  | Job_input_error _ as e ->
-      raise e
-  | Uri.Uri_error e ->
-      raise (Job_input_error (Invalid_job_input (Uri.string_of_error e)))
-  | JC.Json_conv_error e ->
-      raise (Job_input_error (Invalid_job_input (JC.string_of_error e)))
-
-let job_input_of_string i =
-  match U.string_split i ',' with
-  | l :: z :: us ->
-      let label =
-        try int_of_string l
-        with Failure _ -> raise (Job_input_error (Invalid_job_input_label l)) in
-      let size =
-        try int_of_string z
-        with Failure _ -> raise (Job_input_error (Invalid_job_input_size z)) in
-      let urls = List.map
-          (fun u ->
-            try Uri.of_string u
-            with _ -> raise (Job_input_error (Invalid_job_input_url u))
-          ) us in
-      label, size, urls
-  | _ ->
-      raise (Job_input_error (Invalid_job_input_string i))
-
-let json_of_job_input (label, size, urls) =
-  let inputs = List.map (fun u -> J.String (Uri.to_string u)) urls in
-  J.Array (Array.of_list
-             [JC.of_int label; JC.of_int size; J.Array (Array.of_list inputs)])
-
 (* task input utilities *)
+
+type task_input =
+  | Data of label * Uri.t
+  | Dir_indexed of label * Uri.t
+  | Dir of Uri.t
 
 let uri_of = function
   | Data (_, u)

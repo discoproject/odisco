@@ -1,3 +1,36 @@
+(** job inputs
+
+    These are the data input specifications that appear in jobpacks.
+    Each input is specified by a set of urls for replicas, a label,
+    and a size.  The size can be 0 if the actual data size is unknown.
+*)
+
+type data_size = int
+type job_input = Pipeline.label * data_size * Uri.t list
+
+val job_input_of_string : string -> job_input
+val job_input_of_json : Json.t -> job_input
+val json_of_job_input : job_input -> Json.t
+
+type job_input_error =
+  | Invalid_job_input_json of Json.t
+  | Invalid_job_input_string of string
+  | Invalid_job_input_label of string
+  | Invalid_job_input_size of string
+  | Invalid_job_input_url of string
+  | Invalid_job_input of string
+
+exception Job_input_error of job_input_error
+
+val string_of_job_input_error : job_input_error -> string
+
+(** job packets
+
+    These are job pipeline specifications and zipped archives
+    containing code and optionally data that are sent to the master
+    for execution.
+*)
+
 type error =
   | Invalid_magic of int
   | Unsupported_version of int
@@ -20,7 +53,7 @@ type jobdict = {
   owner : string;
   worker : string;
   pipeline : Pipeline.pipeline;
-  inputs : Pipeline.job_input list;
+  inputs : job_input list;
 }
 
 type jobpack = private string
@@ -41,7 +74,7 @@ val jobdata_of : header -> string -> string
 
 val make_jobpack : ?envs:jobenvs -> ?jobdata:string
   -> name:string -> owner:string -> worker:string
-  -> pipeline:Pipeline.pipeline -> Pipeline.job_input list
+  -> pipeline:Pipeline.pipeline -> job_input list
   -> jobpack
 
 (* Errors *)

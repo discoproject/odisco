@@ -347,6 +347,9 @@ let error_wrap ic oc f =
   | E.Worker_failure e ->
       err ((Printf.sprintf "%s\n" (E.string_of_error e))
            ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
+  | L.Pipeline_error e ->
+      err ((Printf.sprintf "%s\n" (L.string_of_pipeline_error e))
+           ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))
   | JC.Json_conv_error e ->
       err ((Printf.sprintf "Protocol parse error: %s\n" (JC.string_of_error e))
            ^ (Printf.sprintf "%s\n" (Printexc.get_backtrace ())))

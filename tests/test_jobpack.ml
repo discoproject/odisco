@@ -1,6 +1,6 @@
 module H = Http
 module C = Http_client
-module P = Pipeline
+module L = Pipeline
 module J = Jobpack
 module U = Utils
 module JS  = Json
@@ -24,7 +24,7 @@ let parse_args () =
                             " job name (will be prefix of actual job)");
                            ("-w", Arg.String (fun w -> worker := Some w),
                             " path to executable to run");
-                           ("-p", Arg.String (fun p -> pipe := P.pipeline_of_string p),
+                           ("-p", Arg.String (fun p -> pipe := L.pipeline_of_string p),
                             " job pipeline (as described above)");
                            ("-o", Arg.String (fun o -> op := Some (Output o)),
                             " file to save jobpack into");
@@ -44,7 +44,7 @@ let parse_args () =
                    "    <label>,<size>,<url>,<url>,...";
                    "  The <OP> operation to perform is one of:";
                    "    -o <filename> | -c <filename> | -s"])) in
-  Arg.parse options (fun i -> inputs := P.job_input_of_string i :: !inputs) usage;
+  Arg.parse options (fun i -> inputs := J.job_input_of_string i :: !inputs) usage;
   let needs_info = function | Output _ -> true | Check _ -> false | Submit -> true in
   match !op, !name, !worker with
     | None, _, _ ->
@@ -68,10 +68,10 @@ let print_exception e =
   let msg = match e with
     | J.Jobpack_error je ->
       Printf.sprintf "bad jobpack: %s" (J.string_of_error je)
-    | P.Pipeline_error pe ->
-      Printf.sprintf "bad pipeline: %s" (P.string_of_pipeline_error pe)
-    | P.Job_input_error ie ->
-      Printf.sprintf "bad input: %s" (P.string_of_job_input_error ie)
+    | L.Pipeline_error pe ->
+      Printf.sprintf "bad pipeline: %s" (L.string_of_pipeline_error pe)
+    | J.Job_input_error ie ->
+      Printf.sprintf "bad input: %s" (J.string_of_job_input_error ie)
     | Sys_error s ->
       Printf.sprintf "%s" s
     | Unix.Unix_error (ec, fn, _) ->
@@ -98,7 +98,7 @@ let gen_jobpack name worker =
 let show_pipeline p =
   Printf.printf "Pipeline:";
   List.iter (fun (s, g) ->
-    Printf.printf " -> %s (%s)" s (P.string_of_grouping g)
+    Printf.printf " -> %s (%s)" s (L.string_of_grouping g)
   ) p;
   Printf.printf "\n"
 
@@ -117,7 +117,7 @@ let chk_jobpack file =
   let open J in
   Printf.printf "%s contains job '%s' by '%s' running '%s'.\n"
     file jobdict.name jobdict.owner jobdict.worker;
-  show_pipeline (jobdict.pipeline :> (string * P.grouping) list);
+  show_pipeline (jobdict.pipeline :> (string * L.grouping) list);
   show_inputs (jobdict.inputs :> (int * int * Uri.t list) list)
 
 let submit_jobpack ?cfg ?timeout pack =

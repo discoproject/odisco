@@ -31,32 +31,6 @@ exception Pipeline_error of pipeline_error
 
 val string_of_pipeline_error : pipeline_error -> string
 
-(** job inputs
-
-    These are the data input specifications that appear in jobpacks.
-    Each input is specified by a set of urls for replicas, a label,
-    and a size.  The size can be 0 if the actual data size is unknown.
-*)
-
-type data_size = int
-type job_input = label * data_size * Uri.t list
-
-val job_input_of_string : string -> job_input
-val job_input_of_json : Json.t -> job_input
-val json_of_job_input : job_input -> Json.t
-
-type job_input_error =
-  | Invalid_job_input_json of Json.t
-  | Invalid_job_input_string of string
-  | Invalid_job_input_label of string
-  | Invalid_job_input_size of string
-  | Invalid_job_input_url of string
-  | Invalid_job_input of string
-
-exception Job_input_error of job_input_error
-
-val string_of_job_input_error : job_input_error -> string
-
 (** task inputs
 
     These are the data input specifications that are provided to
