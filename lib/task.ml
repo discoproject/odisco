@@ -1,10 +1,13 @@
-type label = int
+type stage    = Pipeline.stage
+type grouping = Pipeline.grouping
+type label    = Pipeline.label
 
 type disco = {
   jobname : string;
   jobfile : string;
 
   stage : string;
+  grouping : grouping;
   group_label : int;
   group_node : string option;
   task_id : int;

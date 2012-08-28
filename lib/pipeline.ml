@@ -1,8 +1,6 @@
 module J  = Json
 module JC = Json_conv
 module U  = Utils
-module P  = Protocol
-module E  = Errors
 
 type label = int
 type stage = string
@@ -175,51 +173,3 @@ let uri_of = function
   | Data (_, u)
   | Dir_indexed (_, u)
   | Dir u              -> u
-
-let task_input_of_one_uri ti id (rid, uri) =
-  let trans_auth =
-    match uri.Uri.scheme, uri.Uri.authority with
-    | Some "dir", Some a
-    | Some "disco", Some a -> Some {a with Uri.port = Some ti.P.task_disco_port}
-    | _, auth              -> auth in
-  let url =
-    match uri.Uri.scheme, uri.Uri.fragment with
-    | Some "dir", None ->
-        Dir {uri with Uri.authority = trans_auth}
-    | Some "dir", Some l ->
-        (try
-          let label = int_of_string l
-          in Dir_indexed (label, {uri with Uri.authority = trans_auth;
-                                  fragment = None})
-        with Failure _ ->
-          raise (E.Worker_failure (E.Invalid_task_input_label (id, rid, uri))))
-    | _, Some l ->
-        (try
-          let label = int_of_string l
-          in Data (label, {uri with Uri.authority = trans_auth;
-                           fragment = None})
-        with Failure _ ->
-          raise (E.Worker_failure (E.Invalid_task_input_label (id, rid, uri))))
-    | _, None ->
-        raise (E.Worker_failure (E.Missing_task_input_label (id, rid, uri)))
-  in rid, url
-
-let comparable_task_inputs (_, i1) (_, i2) =
-  match i1, i2 with
-  | Data (l1, _), Data (l2, _)
-  | Dir_indexed (l1, _), Dir_indexed (l2, _) -> l1 = l2
-  | Dir _, Dir _                             -> true
-  | _, _                                     -> false
-
-let task_input_of ti id = function
-  | [] ->
-      []
-  | (r :: _) as replicas ->
-      let one = task_input_of_one_uri ti id r in
-      let all = List.map (task_input_of_one_uri ti id) replicas in
-      (* ensure all urls in the input are consistent *)
-      if not (List.for_all (comparable_task_inputs one) all)
-      then
-        let uris = List.map snd replicas in
-        raise (E.Worker_failure (E.Inconsistent_task_inputs (id, uris)))
-      else all

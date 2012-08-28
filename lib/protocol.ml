@@ -1,6 +1,7 @@
 module J = Json
 module JC = Json_conv
 module JP = Json_parse
+module L = Pipeline
 module E = Errors
 module U = Utils
 
@@ -12,8 +13,9 @@ type taskinfo = {
   task_jobname : string;
   task_jobfile : string;
 
-  task_stage : string;
-  task_group_label : int;
+  task_stage : L.stage;
+  task_grouping : L.grouping;
+  task_group_label : L.label;
   task_group_node : string option;
   task_id : int;
 
@@ -112,6 +114,7 @@ let taskinfo_of b =
   let task_jobfile = JC.to_string (lookup "jobfile") in
 
   let task_stage = JC.to_string (lookup "stage") in
+  let task_grouping = L.grouping_of_string (JC.to_string (lookup "grouping")) in
   let group = JC.to_list (lookup "group") in
   let task_group_label = JC.to_int (List.hd group) in
   let task_group_node =
@@ -129,7 +132,7 @@ let taskinfo_of b =
   let task_rootpath = (Printf.sprintf "./.%s-%d-%f"
                          task_stage task_id (Unix.time ())) in
   {task_jobname; task_jobfile;
-   task_stage; task_group_label; task_group_node; task_id;
+   task_stage; task_grouping; task_group_label; task_group_node; task_id;
    task_host; task_master; task_disco_port; task_put_port;
    task_disco_root; task_ddfs_root; task_rootpath}
 

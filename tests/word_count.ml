@@ -44,7 +44,7 @@ let sHUFFLE = "shuffle"
 let rEDUCE  = "reduce"
 
 let label_of disco word =
-  if disco.Task.stage = rEDUCE then
+  if disco.Task.grouping = Pipeline.Group_all then
     0
   else
     let h = ref 0 in
@@ -62,7 +62,6 @@ let task_done init disco =
   (* We put intermediate word counts into biniou files. *)
   Hashtbl.iter
     (fun k v ->
-      disco.Task.log (Printf.sprintf "%s %d" k v);
       Wc_b.write_wc (output_of init disco (label_of disco k)) (k, v);
     ) init.dict;
   Hashtbl.iter (fun _l o -> Bi_outbuf.flush_channel_writer o) init.outputs;
@@ -97,8 +96,6 @@ module MapTask = struct
 
   let task_done = task_done
 end
-
-let sHUFFLE_BUFFER_SIZE = 5*1024*1024
 
 module ReduceTask = struct
   module T = Task

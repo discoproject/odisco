@@ -4,6 +4,7 @@ module N = Env
 module E = Errors
 module U = Utils
 module L = Pipeline
+module LU = Pipeline_utils
 
 (** This module contains the core logic of interfacing between the
     Disco protocol and the task/user-code.
@@ -62,6 +63,7 @@ let setup_task_env ic oc taskinfo =
     Task.jobname = taskinfo.P.task_jobname;
     jobfile = taskinfo.P.task_jobfile;
     stage = taskinfo.P.task_stage;
+    grouping = taskinfo.P.task_grouping;
     group_label = taskinfo.P.task_group_label;
     group_node = taskinfo.P.task_group_node;
     task_id = taskinfo.P.task_id;
@@ -255,7 +257,7 @@ let download taskinfo inputs =
     ) split_map rep_list
 
 let pipeline_inputs_of ti inputs =
-  List.map (fun (id, st, replicas) -> id, st, L.task_input_of ti id replicas
+  List.map (fun (id, st, replicas) -> id, st, LU.task_input_of ti id replicas
            ) inputs
 
 let run_task ic oc taskinfo task_init task_process task_done =

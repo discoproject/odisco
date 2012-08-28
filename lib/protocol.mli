@@ -7,8 +7,9 @@ type taskinfo = {
   task_jobname : string;
   task_jobfile : string;
 
-  task_stage : string;
-  task_group_label : int;
+  task_stage : Pipeline.stage;
+  task_grouping : Pipeline.grouping;
+  task_group_label : Pipeline.label;
   task_group_node : string option;
   task_id : int;
 

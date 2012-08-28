@@ -40,8 +40,15 @@
     the exception, and generates the appropriate error message to
     Disco, and terminates the task with an error. *)
 
+
+(** Each task is in a pipeline stage. *)
+type stage = Pipeline.stage
+
+(** Each stage performs a user-specified grouping. *)
+type grouping = Pipeline.grouping
+
 (** Each task input has a label. *)
-type label = int
+type label = Pipeline.label
 
 (** The argument to every callback in the {!Task.TASK} implementation,
     containing task information as well functions to generate output
@@ -53,8 +60,9 @@ type disco = {
 
   (* The following are particular to each task, but remain the same
      across all executions of the same task. *)
-  stage : string;             (** the stage of the current task *)
-  group_label : int;          (** the group label of the current task *)
+  stage : stage;              (** the stage of the current task *)
+  grouping : grouping;        (** the grouping performed by the stage *)
+  group_label : label;        (** the group label of the current task *)
   group_node : string option; (** the group node of the current task *)
   task_id  : int;             (** the task id of the current task *)
 
