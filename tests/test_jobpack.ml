@@ -18,6 +18,7 @@ let worker = ref None
 let pipe   = ref []
 let inputs = ref []
 let op     = ref None
+let save   = ref false
 
 let parse_args () =
   let options = Arg.align [("-n", Arg.String (fun n -> name := Some n),
@@ -26,6 +27,8 @@ let parse_args () =
                             " path to executable to run");
                            ("-p", Arg.String (fun p -> pipe := L.pipeline_of_string p),
                             " job pipeline (as described above)");
+                           ("-S", Arg.Bool (fun b -> save := b),
+                            " save job results into DDFS");
                            ("-o", Arg.String (fun o -> op := Some (Output o)),
                             " file to save jobpack into");
                            ("-c", Arg.String (fun o -> op := Some (Check o)),
@@ -57,9 +60,9 @@ let parse_args () =
       Printf.eprintf "No job executable specified.\n";
       Arg.usage options usage; exit 1
     | Some (Output o), Some n, Some w ->
-      `Output (o, n, w)
+      `Output (o, n, w, !save)
     | Some Submit, Some n, Some w ->
-      `Submit (n, w)
+      `Submit (n, w, !save)
     | Some (Check o), _, _ ->
       `Check o
     | _, _, _ -> assert false
@@ -90,10 +93,10 @@ let save_jobpack ofile pack =
   Unix.close ofd;
   Printf.printf "Jobpack of size %d saved in %s.\n" (String.length pack) ofile
 
-let gen_jobpack name worker =
+let gen_jobpack name worker save =
   let owner = Printf.sprintf "%s@%s" (get_user ()) (Unix.gethostname ()) in
   let pipeline, inputs = !pipe, !inputs in
-  ((J.make_jobpack ~name ~worker ~owner ~pipeline inputs) :> string)
+  ((J.make_jobpack ~save ~name ~worker ~owner ~pipeline inputs) :> string)
 
 let show_pipeline p =
   Printf.printf "Pipeline:";
@@ -140,8 +143,8 @@ let submit_jobpack ?cfg ?timeout pack =
 
 let _ =
   try match parse_args () with
-    | `Output (o, n, w) -> save_jobpack o (gen_jobpack n w)
-    | `Check o          -> chk_jobpack o
-    | `Submit (n, w)    -> submit_jobpack (gen_jobpack n w)
+    | `Output (o, n, w, s) -> save_jobpack o (gen_jobpack n w s)
+    | `Check o             -> chk_jobpack o
+    | `Submit (n, w, s)    -> submit_jobpack (gen_jobpack n w s)
   with e ->
     print_exception e; exit 1
