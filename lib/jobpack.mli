@@ -54,6 +54,7 @@ type jobdict = {
   worker : string;
   pipeline : Pipeline.pipeline;
   inputs : job_input list;
+  save_results : bool;
 }
 
 type jobpack = private string
@@ -72,7 +73,7 @@ val jobdata_of : header -> string -> string
 
 (* Construction *)
 
-val make_jobpack : ?envs:jobenvs -> ?jobdata:string
+val make_jobpack : ?envs:jobenvs -> ?jobdata:string -> ?save:bool
   -> name:string -> owner:string -> worker:string
   -> pipeline:Pipeline.pipeline -> job_input list
   -> jobpack

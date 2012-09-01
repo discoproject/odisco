@@ -117,6 +117,7 @@ type jobdict = {
   worker : string;
   pipeline : L.pipeline;
   inputs : job_input list;
+  save_results : bool;
 }
 
 type jobpack = string
@@ -219,11 +220,13 @@ let json_jobdict_of hdr pack =
   | JC.Json_conv_error e ->
       raise (Jobpack_error (Invalid_jobdict (JC.string_of_error e)))
 
+let sAVE   = "save_results"
 let pREFIX = "prefix"
 let oWNER  = "owner"
 let wORKER = "worker"
 let iNPUTS = "inputs"
 let pIPELINE = "pipeline"
+
 let jobdict_from_json dict = List.iter
     (fun key ->
       if not (List.mem_assoc key dict)
@@ -234,7 +237,8 @@ let jobdict_from_json dict = List.iter
   let worker = JC.to_string (List.assoc wORKER dict) in
   let inputs = List.map job_input_of_json (JC.to_list (List.assoc iNPUTS dict)) in
   let pipeline = L.pipeline_of_json (List.assoc pIPELINE dict) in
-  {name; owner; worker; inputs; pipeline}
+  let save_results = JC.to_bool (List.assoc sAVE dict) in
+  {name; owner; worker; inputs; pipeline; save_results}
 
 let jobdict_of hdr pack =
   jobdict_from_json (json_jobdict_of hdr pack)
@@ -273,19 +277,20 @@ let zip_from_file f =
   Unix.unlink tf;
   zip
 
-let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs =
+let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs ~save =
   let i = List.map json_of_job_input inputs in
   let n = pREFIX, J.String name in
   let o = oWNER, J.String owner in
   let w = wORKER, J.String worker in
   let p = pIPELINE, L.json_of_pipeline pipeline in
   let i = iNPUTS, J.Array (Array.of_list i) in
-  J.Object (Array.of_list [n; o; w; p; i])
+  let s = sAVE, J.Bool save in
+  J.Object (Array.of_list [n; o; w; p; i; s])
 
-let make_jobpack ?(envs=[]) ?(jobdata="")
+let make_jobpack ?(envs=[]) ?(jobdata="") ?(save=false)
     ~name ~owner ~worker ~pipeline inputs =
   let jobdict = J.to_string (make_jobdict_json ~name ~owner
-                               ~worker ~pipeline ~inputs) in
+                               ~worker ~pipeline ~inputs ~save) in
   let jobhome = zip_from_file worker in
   let envarr  = List.map (fun (k, v) -> k, J.String v) envs in
   let jobenvs = J.to_string (J.Object (Array.of_list envarr)) in
