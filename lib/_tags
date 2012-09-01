@@ -1,1 +1,1 @@
-<*.ml{i,}>: package(camlzip), package(sonet.httplib), package(sonet.jsonlib), debug
+<*.ml{i,}>: package(zip), package(sonet.httplib), package(sonet.jsonlib), debug
