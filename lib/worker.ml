@@ -362,5 +362,8 @@ let error_wrap ic oc f =
 
 let start pipeline =
   Printexc.record_backtrace true;
-  error_wrap stdin stderr
-    (fun () -> start_protocol stdin stderr pipeline)
+  (try
+    error_wrap stdin stderr
+      (fun () -> start_protocol stdin stderr pipeline)
+   with _ -> ());
+  U.close_logfile()

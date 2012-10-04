@@ -83,6 +83,12 @@ let strip_word = function
       | _ -> String.sub w s (e - s + 1)
 
 (* debug logging *)
+type log =
+  | Nolog
+  | Buf of Buffer.t
+  | File of out_channel
+
+let log = ref Nolog
 
 let log_print s =
   let tm = Unix.localtime (Unix.gettimeofday ()) in
@@ -93,29 +99,42 @@ let log_print s =
 
 let verbose = ref true
 
-let log_buf = ref None
 let logger =
   match !verbose with
   | false ->
       ref (fun _s -> ())
   | true ->
       let buf = Buffer.create 2048 in
-      log_buf := Some buf;
+      log := Buf buf;
       ref (fun s -> Buffer.add_string buf (log_print s))
 
 let init_logfile task_rootpath =
   if !verbose then begin
-    let log = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
-                 0o660 (Filename.concat task_rootpath "oc.dbg")) in
-    (match !log_buf with
-     | None ->
-         ()
-     | Some buf ->
-         Printf.fprintf log "%s" (Buffer.contents buf);
-         log_buf := None
-    );
-    logger := (fun s -> Printf.fprintf log "%s" (log_print s))
+    match !log with
+    | Nolog ->
+        ()
+    | Buf buf ->
+        let logf = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
+                      0o660 (Filename.concat task_rootpath "oc.dbg")) in
+        Printf.fprintf logf "%s%!" (Buffer.contents buf);
+        log := File logf;
+        logger := (fun s -> Printf.fprintf logf "%s%!" (log_print s))
+    | File oldf ->
+        Printf.fprintf oldf "Attempted to re-init logfile in %s!%!" task_rootpath
   end
+
+let close_logfile () =
+  match !log with
+  | Nolog ->
+      ()
+  | Buf buf ->
+      let logf = (open_out_gen [ Open_creat; Open_append; Open_wronly ]
+                    0o660 "/tmp/oc.dbg") in
+      Printf.fprintf logf "%s" (Buffer.contents buf);
+      Printf.fprintf logf "(incomplete log)%!";
+      close_out logf
+  | File logf ->
+      close_out logf
 
 let dbg fmt = Printf.ksprintf !logger fmt
 
