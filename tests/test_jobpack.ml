@@ -27,7 +27,7 @@ let parse_args () =
                             " path to executable to run");
                            ("-p", Arg.String (fun p -> pipe := L.pipeline_of_string p),
                             " job pipeline (as described above)");
-                           ("-S", Arg.Bool (fun b -> save := b),
+                           ("-S", Arg.Unit (fun () -> save := true),
                             " save job results into DDFS");
                            ("-o", Arg.String (fun o -> op := Some (Output o)),
                             " file to save jobpack into");
