@@ -207,7 +207,7 @@ let rec get_raw_master_msg ic =
           Buffer.add_string payload (process_prefix buf);
           ofs := 0
         end
-    | Some (_, len) ->
+    | Some (_, _) ->
         assert (!ofs = 0);
         Buffer.add_substring payload buf 0 len in
 
@@ -238,7 +238,7 @@ let master_msg_of = function
 
 let next_master_msg ic =
   let msg, payload = get_raw_master_msg ic in
-  Utils.dbg "<- %s: %s" msg payload;
+  U.dbg "<- %s: %s" msg payload;
   try master_msg_of (msg, JP.of_string payload)
   with
   | JP.Parse_error e ->
@@ -300,7 +300,7 @@ let prepare_msg = function
 
 let send_msg m oc =
   let tag, payload = prepare_msg m in
-  Utils.dbg "-> %s: %s" tag payload;
+  U.dbg "-> %s: %s" tag payload;
   Printf.fprintf oc "%s %d %s\n" tag (String.length payload) payload
 
 (* synchronous msg exchange / rpc *)
