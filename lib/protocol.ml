@@ -45,16 +45,6 @@ let string_of_scheme = function
   | Http -> "http"
   | Other s -> s
 
-let scheme_of_uri uri =
-  match uri.Uri.scheme with
-  | None         -> File
-  | Some "dir"   -> Dir
-  | Some "disco" -> Disco
-  | Some "file"  -> File
-  | Some "raw"   -> Raw
-  | Some "http"  -> Http
-  | Some s       -> Other s
-
 type task_input_status =
   | Task_input_more
   | Task_input_done
@@ -177,7 +167,7 @@ let tIMEOUT = 5.0 *. 60.0 (* in seconds *)
 *)
 
 let bUFLEN = 1024
-let rec get_raw_master_msg ic =
+let get_raw_master_msg ic =
   let msg = ref None in
   let process_prefix p =
     let tag, rem = split p in
@@ -198,7 +188,7 @@ let rec get_raw_master_msg ic =
      | None -> None) in
 
   let ifd = Unix.descr_of_in_channel ic in
-  let rec do_read () =
+  let do_read () =
     let len = Unix.read ifd buf !ofs (String.length buf - !ofs) in
     match !msg with
     | None ->

@@ -103,10 +103,6 @@ type resolved_input =
   | Inp_replicas of P.input_id * L.label * (P.replica_id * Uri.t) list
   | Inp_splits of P.input_id * P.replica_id * (L.label * Uri.t) list
 
-let id_of_resolved_input = function
-  | Inp_replicas (id, _, _)
-  | Inp_splits (id, _, _) -> id
-
 (* The first pass of input processing resolves any Dir or Dir_indexed
    inputs, by fetching the specified index files and processing the
    entries as specified. *)
