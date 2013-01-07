@@ -30,7 +30,7 @@ type output = {
   output : P.output;
 }
 
-(** the task environment contains of
+(** the task environment consists of
 
   (a) the per-task-run directory.  note that a task might run multiple
       times, even on the same machine, when the master deals with
