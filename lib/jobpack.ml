@@ -268,15 +268,6 @@ let jobdata_of hdr pack =
 
 (* jobpack creation utilities *)
 
-let zip_from_file f =
-  let tf = F.temp_file "ocamljob" "" in
-  let outz = Z.open_out tf in
-  Z.copy_file_to_entry f outz (F.basename f);
-  Z.close_out outz;
-  let zip = U.contents_of_file tf in
-  Unix.unlink tf;
-  zip
-
 let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs ~save =
   let i = List.map json_of_job_input inputs in
   let n = pREFIX, J.String name in
@@ -287,10 +278,23 @@ let make_jobdict_json ~name ~owner ~worker ~pipeline ~inputs ~save =
   let s = sAVE, J.Bool save in
   J.Object (Array.of_list [n; o; w; p; i; s])
 
+(* We currently only support a single executable file as a worker.
+   This is put in the top directory of the zip archive. *)
+
+let zip_from_file f =
+  let tf = F.temp_file "ocamljob" "" in
+  let outz = Z.open_out tf in
+  Z.copy_file_to_entry f outz (F.basename f);
+  Z.close_out outz;
+  let zip = U.contents_of_file tf in
+  Unix.unlink tf;
+  zip
+
 let make_jobpack ?(envs=[]) ?(jobdata="") ?(save=false)
     ~name ~owner ~worker ~pipeline inputs =
   let jobdict = J.to_string (make_jobdict_json ~name ~owner
-                               ~worker ~pipeline ~inputs ~save) in
+                               ~worker:(F.basename worker)
+                               ~pipeline ~inputs ~save) in
   let jobhome = zip_from_file worker in
   let envarr  = List.map (fun (k, v) -> k, J.String v) envs in
   let jobenvs = J.to_string (J.Object (Array.of_list envarr)) in
