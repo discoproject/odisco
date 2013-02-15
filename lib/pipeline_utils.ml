@@ -2,32 +2,24 @@ module P = Protocol
 module L = Pipeline
 module E = Errors
 
-let task_input_of_one_uri ti id (rid, uri) =
+let task_input_of_one_uri ti id label (rid, uri) =
   let trans_auth =
     match uri.Uri.scheme, uri.Uri.authority with
     | Some "dir", Some a
     | Some "disco", Some a -> Some {a with Uri.port = Some ti.P.task_disco_port}
     | _, auth              -> auth in
   let url =
-    match uri.Uri.scheme, uri.Uri.fragment with
-    | Some "dir", None ->
+    match uri.Uri.scheme, label with
+    | Some "dir", P.Input_label_all ->
         L.Dir {uri with Uri.authority = trans_auth}
-    | Some "dir", Some l ->
-        (try
-          let label = int_of_string l
-          in L.Dir_indexed (label, {uri with Uri.authority = trans_auth;
-                                    fragment = None})
-        with Failure _ ->
-          raise (E.Worker_failure (E.Invalid_task_input_label (id, rid, uri))))
-    | _, Some l ->
-        (try
-          let label = int_of_string l
-          in L.Data (label, {uri with Uri.authority = trans_auth;
-                             fragment = None})
-        with Failure _ ->
-          raise (E.Worker_failure (E.Invalid_task_input_label (id, rid, uri))))
-    | _, None ->
-        raise (E.Worker_failure (E.Missing_task_input_label (id, rid, uri)))
+    | Some "dir", P.Input_label l ->
+        L.Dir_indexed (l, {uri with Uri.authority = trans_auth;
+                           fragment = None})
+    | _, P.Input_label l ->
+        L.Data (l, {uri with Uri.authority = trans_auth;
+                    fragment = None})
+    | _, P.Input_label_all ->
+        raise (E.Worker_failure (E.Invalid_task_input_label (id, rid, uri)))
   in rid, url
 
 let comparable_task_inputs (_, i1) (_, i2) =
@@ -37,12 +29,12 @@ let comparable_task_inputs (_, i1) (_, i2) =
   | L.Dir _, L.Dir _                             -> true
   | _, _                                         -> false
 
-let task_input_of ti id = function
+let task_input_of ti id label = function
   | [] ->
       []
   | (r :: _) as replicas ->
-      let one = task_input_of_one_uri ti id r in
-      let all = List.map (task_input_of_one_uri ti id) replicas in
+      let one = task_input_of_one_uri ti id label r in
+      let all = List.map (task_input_of_one_uri ti id label) replicas in
       (* ensure all urls in the input are consistent *)
       if not (List.for_all (comparable_task_inputs one) all)
       then

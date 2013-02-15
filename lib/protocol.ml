@@ -60,6 +60,10 @@ type input_status =
   | Input_ok
   | Input_failed
 
+type input_label =
+  | Input_label_all
+  | Input_label of Pipeline.label
+
 let input_status_of_string s =
   match String.lowercase s with
   | "ok"     -> Input_ok
@@ -70,7 +74,7 @@ let input_status_of_string s =
 type input_id = int
 type replica_id = int
 type replica = replica_id * Uri.t
-type input = input_id * input_status * replica list
+type input = input_id * input_status * input_label * replica list
 
 type master_msg =
   | M_ok
@@ -126,6 +130,14 @@ let taskinfo_of b =
    task_host; task_master; task_disco_port; task_put_port;
    task_disco_root; task_ddfs_root; task_rootpath}
 
+let input_label j =
+  if J.is_int j then Input_label (JC.to_int j)
+  else if J.is_string j && JC.to_string j = "all" then Input_label_all
+  else begin
+    let msg = Printf.sprintf "invalid input label %s" (J.to_string j) in
+    raise (E.Worker_failure (E.Protocol_error msg))
+  end
+
 let task_input_of b =
   let msg = JC.to_list b in
   let status = task_input_status_of_string (JC.to_string (List.hd msg)) in
@@ -135,7 +147,8 @@ let task_input_of b =
       let l = JC.to_list l in
       let inp_id = JC.to_int (List.hd l) in
       let inp_status = input_status_of_string (JC.to_string (List.nth l 1)) in
-      let replicas = JC.to_list (List.nth l 2) in
+      let inp_label = input_label (List.nth l 2) in
+      let replicas = JC.to_list (List.nth l 3) in
       let inps = List.map
           (fun jlist ->
             let l = JC.to_list jlist in
@@ -143,7 +156,7 @@ let task_input_of b =
             let rep_url = Uri.of_string (JC.to_string (List.nth l 1)) in
             (rep_id, rep_url)
           ) replicas in
-      inp_id, inp_status, inps) in
+      inp_id, inp_status, inp_label, inps) in
   status, List.map mk_inp minps
 
 let retry_of b =

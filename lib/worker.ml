@@ -101,7 +101,7 @@ let send_output_msg ic oc out_files =
 
 type resolved_input =
   | Inp_replicas of P.input_id * L.label * (P.replica_id * Uri.t) list
-  | Inp_splits of P.input_id * P.replica_id * (L.label * Uri.t) list
+  | Inp_splits of P.input_id * P.input_label * P.replica_id * (L.label * Uri.t) list
 
 (* The first pass of input processing resolves any Dir or Dir_indexed
    inputs, by fetching the specified index files and processing the
@@ -123,7 +123,7 @@ let get_labels entries label =
 let resolve taskinfo inputs =
   (* Partition the inputs into dir indices and replicated data inputs. *)
   let dirs, ireps = List.fold_left
-      (fun (dirs, ireps) ((id, _status, replicas) as inp) ->
+      (fun (dirs, ireps) ((id, _status, _ilabel, replicas) as inp) ->
         match replicas with
         | [] ->
             dirs, ireps
@@ -136,13 +136,13 @@ let resolve taskinfo inputs =
             dirs, (U.Right (Inp_replicas (id, l, reps))) :: ireps
       ) ([], []) inputs in
   (* For each of the dir index inputs, fetch the index. *)
-  let make_req (id, _status, reps) =
+  let make_req (id, _status, ilabel, reps) =
     let map, uris = List.split
         (List.map
            (fun (rid, dr) -> let u = L.uri_of dr in (u, rid), u)
            reps) in
     let dr_rep = snd (List.hd reps) in
-    id, (dr_rep, map), uris in
+    id, (ilabel, dr_rep, map), uris in
   let ndirs = List.length dirs in
   let indices =
     if ndirs > 0 then begin
@@ -153,7 +153,7 @@ let resolve taskinfo inputs =
     end else [] in
   (* Process the retrieved indices *)
   let resolved_dirs = List.map
-      (fun (id, (dr_rep, map), result) ->
+      (fun (id, (ilabel, dr_rep, map), result) ->
         (* We're assuming in the assocs below that Disco internal
            index urls don't get changed, e.g. via redirects. *)
         match dr_rep, result with
@@ -162,22 +162,22 @@ let resolve taskinfo inputs =
             (match parse_index index with
              | None ->
                  U.dbg "Error parsing index %d: %s" id (Uri.to_string uri);
-                 U.Left (id, [rid], E.Invalid_dir_index (id, rid, uri))
+                 U.Left (id, ilabel, [rid], E.Invalid_dir_index (id, rid, uri))
              | Some entries ->
                  (* Use all entries in Dir inputs *)
-                 U.Right (Inp_splits (id, rid, entries)))
+                 U.Right (Inp_splits (id, ilabel, rid, entries)))
         | L.Dir_indexed (l, _), U.Right (uri, index) ->
             let rid = List.assoc uri map in
             (match parse_index index with
              | None ->
                  U.dbg "Error parsing index %d: %s" id (Uri.to_string uri);
-                 U.Left (id, [rid], E.Invalid_dir_index (id, rid, uri))
+                 U.Left (id, ilabel, [rid], E.Invalid_dir_index (id, rid, uri))
              | Some entries ->
                  (* Use the specified labels only for Dir_indexed inputs *)
-                 U.Right (Inp_splits (id, rid, get_labels entries l)))
+                 U.Right (Inp_splits (id, ilabel, rid, get_labels entries l)))
         | _, U.Left e ->
             U.dbg "Error downloading input %d: %s" id (E.string_of_error e);
-            U.Left (id, List.map snd map, e)
+            U.Left (id, ilabel, List.map snd map, e)
         | L.Data _, _ ->
             assert false
       ) indices in
@@ -199,7 +199,7 @@ let download taskinfo inputs =
   let make_reqs = function
     | (Inp_replicas (id, label, reps)) as inp ->
         [ id, (label, inp), List.map snd reps ]
-    | (Inp_splits (id, _rid, splits)) as inp ->
+    | (Inp_splits (id, _ilabel, _rid, splits)) as inp ->
         List.map (fun (label, url) -> id, (label, inp), [url]
                  ) splits in
   let inp_reqs = List.concat (List.map make_reqs inputs) in
@@ -220,14 +220,14 @@ let download taskinfo inputs =
   let rep_list, split_map = List.fold_left
     (fun (rep_list, split_map) -> function
       (* collect rids for failed downloads *)
-      | _, (_, Inp_replicas (id, _, reps)), U.Left e ->
-          U.Left (id, List.map fst reps, e) :: rep_list, split_map
-      | _, (_, (Inp_splits (id, rid, _) as inp)), U.Left e ->
-          rep_list, add_split inp (U.Left (id, [rid], e)) split_map
+      | _, (_, Inp_replicas (id, label, reps)), U.Left e ->
+          U.Left (id, (P.Input_label label), List.map fst reps, e) :: rep_list, split_map
+      | _, (_, (Inp_splits (id, ilabel, rid, _) as inp)), U.Left e ->
+          rep_list, add_split inp (U.Left (id, ilabel, [rid], e)) split_map
       | _, (_, Inp_replicas (id, label, _reps)), U.Right (uri, f) ->
           (* localize results for successful downloads *)
           U.Right (Local_replica (id, label, uri, f)) :: rep_list, split_map
-      | _, (label, (Inp_splits (_, _, _splits) as inp)), U.Right (uri, f) ->
+      | _, (label, (Inp_splits (_, _, _, _splits) as inp)), U.Right (uri, f) ->
           (* collect splits for same input_id together *)
           rep_list, add_split inp (U.Right (label, uri, f)) split_map
     ) ([], SplitDownloads.empty) downloads in
@@ -237,7 +237,7 @@ let download taskinfo inputs =
       match inp with
       | Inp_replicas _ ->
           assert false
-      | Inp_splits (id, rid, splits) ->
+      | Inp_splits (id, _ilabel, rid, splits) ->
           assert (List.length splits = List.length results);
           let errors, downloads = U.lrsplit results in
           if errors <> [] then begin
@@ -246,14 +246,15 @@ let download taskinfo inputs =
             U.dbg "Error downloading all %d splits from replica %d of input %d: \
               %d errors"
               (List.length splits) rid id (List.length errors);
-            List.iter (fun (_label, _uri, f) -> N.File.close f) downloads;
+            List.iter (fun (_l, _uri, f) -> N.File.close f) downloads;
             U.Left (List.hd errors) :: acc
           end else
             U.Right (Local_splits (id, downloads)) :: acc
     ) split_map rep_list
 
 let pipeline_inputs_of ti inputs =
-  List.map (fun (id, st, replicas) -> id, st, LU.task_input_of ti id replicas
+  List.map (fun (id, st, ilabel, replicas) ->
+              id, st, ilabel, LU.task_input_of ti id ilabel replicas
            ) inputs
 
 let run_task ic oc taskinfo task_init task_process task_done =
@@ -270,11 +271,11 @@ let run_task ic oc taskinfo task_init task_process task_done =
       (Unix.in_channel_of_descr fd);
     in_files := fi :: !in_files in
   let process_localized_input = function
-    | Local_replica (id, label, uri, f) ->
-        process_download label uri f;
+    | Local_replica (id, l, uri, f) ->
+        process_download l uri f;
         id
     | Local_splits (id, inps) ->
-        List.iter (fun (label, uri, f) -> process_download label uri f) inps;
+        List.iter (fun (l, uri, f) -> process_download l uri f) inps;
         id in
   let process inputs =
     (* First, resolve any indexed inputs *)
@@ -292,7 +293,7 @@ let run_task ic oc taskinfo task_init task_process task_done =
     processed := done_ @ !processed;
     (* Make one pass at processing retries for errors *)
     let retries = List.fold_left
-        (fun acc (id, rids, e) ->
+        (fun acc (id, label, rids, e) ->
           match P.send_request (P.W_input_failure (id, rids)) ic oc with
           | P.M_fail ->
               U.dbg "Unable to get replacement inputs for failed input %d \
@@ -300,7 +301,7 @@ let run_task ic oc taskinfo task_init task_process task_done =
                 id (E.string_of_error e);
               raise (E.Worker_failure e)
           | P.M_retry reps ->
-              (id, (* unused *) P.Input_ok, reps) :: acc
+              (id, (* unused *) P.Input_ok, label, reps) :: acc
           | m ->
               raise (E.Worker_failure (E.Unexpected_msg (P.master_msg_name m)))
         ) [] errors in

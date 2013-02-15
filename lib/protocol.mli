@@ -43,10 +43,14 @@ type input_status =
   | Input_ok
   | Input_failed
 
+type input_label =
+  | Input_label_all
+  | Input_label of Pipeline.label
+
 type input_id = int
 type replica_id = int
 type replica = replica_id * Uri.t
-type input = input_id * input_status * replica list
+type input = input_id * input_status * input_label * replica list
 
 type master_msg =
   | M_ok
