@@ -52,15 +52,19 @@ let tag_links_all () =
       List.iter tag_links tl
 
 let kB = 1000
-let mB = 1000000
-let gB = 1000000000
-let tB = 1000000000000
+let mAX_ORD = 4
 let human_size size =
-  if size < kB then Printf.sprintf "%dB" size
-  else if size < mB then Printf.sprintf "%dKB" (size / kB)
-  else if size < gB then Printf.sprintf "%dMB" (size / mB)
-  else if size < tB then Printf.sprintf "%dGB" (size / gB)
-  else Printf.sprintf "%dTB" (size / tB)
+  let rec iter ord size =
+    if size < kB || ord == mAX_ORD then size, ord
+    else iter (ord + 1) (size / 1000) in
+  let hsz, ord = iter 0 size in
+  let unit = match ord with
+    | 0 -> "B"
+    | 1 -> "KB"
+    | 2 -> "MB"
+    | 3 -> "GB"
+    | 4 (* mAX_ORD *) | _ -> "TB" in
+  Printf.sprintf "%d%s" hsz unit
 
 let log_tag_size ?(errs = (0, 0)) tag_name size =
   if errs <> (0, 0) then
