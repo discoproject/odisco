@@ -115,7 +115,7 @@ let blob_size ?cfg ?timeout blobset =
         let len_str = (String.concat ", " len_hdr) in
         Some (int_of_string len_str)
       with
-      | Failure "int_of_string" ->
+      | Failure _ ->
           U.dbg "Error converting content-length for: %s" (String.concat ", " urls);
           None
       | Not_found ->
