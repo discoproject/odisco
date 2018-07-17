@@ -47,7 +47,7 @@ let gzip_content fname =
   let zsz = filesize fname in
   let inc = Gzip.open_in fname in
   let buf = Buffer.create zsz in
-  let sbuf = String.create zsz in
+  let sbuf = Bytes.create zsz in
   let rec slurp () =
     let nbytes = Gzip.input inc sbuf 0 zsz in
     if nbytes > 0 then begin
@@ -173,7 +173,7 @@ let inputs_from taskinfo (type cid_type) input_reqs =
     let f = (File.open_new ~delete_on_close:true
                (local_filename taskinfo (List.hd replicas))) in
     U.dbg "Attempting download to %s of [%s]"
-      (File.name f) (String.concat " " (List.map Uri.to_string replicas));
+      (File.name f) (Bytes.concat " " (List.map Uri.to_string replicas));
     Http.Get,
     C.FileRecv ((List.map Uri.to_string replicas), f.File.fd),
     (iid, cid, f) in
@@ -229,7 +229,7 @@ let payloads_from taskinfo (type cid_type) input_reqs =
   let module HC = C.Make(struct type t = P.input_id * cid_type end) in
   let make_req iid cid replicas =
     U.dbg "Attempting retrieval of [%s]"
-      (String.concat " " (List.map Uri.to_string replicas));
+      (Bytes.concat " " (List.map Uri.to_string replicas));
     Http.Get, C.Payload ((List.map Uri.to_string replicas), None), (iid, cid) in
   let reqs = List.map
       (function

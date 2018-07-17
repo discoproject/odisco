@@ -50,7 +50,7 @@ type task_input_status =
   | Task_input_done
 
 let task_input_status_of_string s =
-  match String.lowercase s with
+  match String.lowercase_ascii s with
   | "more" -> Task_input_more
   | "done" -> Task_input_done
   | _      -> raise (E.Worker_failure
@@ -65,7 +65,7 @@ type input_label =
   | Input_label of Pipeline.label
 
 let input_status_of_string s =
-  match String.lowercase s with
+  match String.lowercase_ascii s with
   | "ok"     -> Input_ok
   | "failed" -> Input_failed
   | _        -> raise (E.Worker_failure

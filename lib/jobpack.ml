@@ -165,19 +165,19 @@ let int32_at s ofs =
   + (int_of_char s.[ofs + 2] lsl 8) + int_of_char s.[ofs + 3]
 
 let put_int16 i s ofs =
-  s.[ofs]     <- char_of_int ((i lsr 8) land 255);
-  s.[ofs + 1] <- char_of_int (i land 255)
+  Bytes.set s ofs       (char_of_int ((i lsr 8) land 255));
+  Bytes.set s (ofs + 1) (char_of_int (i land 255))
 
 let put_int32 i s ofs =
-  s.[ofs]     <- char_of_int ((i lsr 24) land 255);
-  s.[ofs + 1] <- char_of_int ((i lsr 16) land 255);
-  s.[ofs + 2] <- char_of_int ((i lsr  8) land 255);
-  s.[ofs + 3] <- char_of_int (i land 255)
+  Bytes.set s ofs       (char_of_int ((i lsr 24) land 255));
+  Bytes.set s (ofs + 1) (char_of_int ((i lsr 16) land 255));
+  Bytes.set s (ofs + 2) (char_of_int ((i lsr  8) land 255));
+  Bytes.set s (ofs + 3) (char_of_int (i land 255))
 
 (* header utilities *)
 
 let extract_header pack =
-  if String.length pack < hDR_LEN then
+  if Bytes.length pack < hDR_LEN then
     raise (Jobpack_error
              (Invalid_header ("must be at least " ^ hDR_LEN_STR ^ " bytes")));
   {magic = int16_at pack 0;
@@ -199,7 +199,7 @@ let validate_header hdr pack =
   if hdr.jobhome_ofs < hdr.jobenvs_ofs then
     raise (Jobpack_error (Invalid_jobhome_ofs hdr.jobhome_ofs));
   if hdr.jobdata_ofs < hdr.jobhome_ofs
-    || hdr.jobdata_ofs > String.length pack then
+    || hdr.jobdata_ofs > Bytes.length pack then
     raise (Jobpack_error (Invalid_jobdata_ofs hdr.jobdata_ofs))
 
 let header_of pack =
@@ -264,7 +264,7 @@ let jobenvs_of hdr pack =
 (* jobdata utilities *)
 
 let jobdata_of hdr pack =
-  String.sub pack hdr.jobdata_ofs (String.length pack - hdr.jobdata_ofs)
+  Bytes.sub pack hdr.jobdata_ofs (Bytes.length pack - hdr.jobdata_ofs)
 
 (* jobpack creation utilities *)
 
@@ -299,29 +299,29 @@ let make_jobpack ?(envs=[]) ?(jobdata="") ?(save=false)
   let envarr  = List.map (fun (k, v) -> k, J.String v) envs in
   let jobenvs = J.to_string (J.Object (Array.of_list envarr)) in
 
-  let dict_len = String.length jobdict in
-  let envs_len = String.length jobenvs in
-  let home_len = String.length jobhome in
-  let data_len = String.length jobdata in
+  let dict_len = Bytes.length jobdict in
+  let envs_len = Bytes.length jobenvs in
+  let home_len = Bytes.length jobhome in
+  let data_len = Bytes.length jobdata in
 
   let ofs = ref hDR_LEN in
-  let pack = String.create (!ofs + dict_len + envs_len + home_len + data_len) in
+  let pack = Bytes.create (!ofs + dict_len + envs_len + home_len + data_len) in
   put_int16 mAGIC pack 0;
   put_int16 vERSION pack 2;
 
   put_int32 hDR_LEN pack 4;
-  String.blit jobdict 0 pack !ofs dict_len;
+  Bytes.blit jobdict 0 pack !ofs dict_len;
   ofs := !ofs + dict_len;
 
   put_int32 !ofs pack 8;
-  String.blit jobenvs 0 pack !ofs envs_len;
+  Bytes.blit jobenvs 0 pack !ofs envs_len;
   ofs := !ofs + envs_len;
 
   put_int32 !ofs pack 12;
-  String.blit jobhome 0 pack !ofs home_len;
+  Bytes.blit jobhome 0 pack !ofs home_len;
   ofs := !ofs + home_len;
 
   put_int32 !ofs pack 16;
-  String.blit jobdata 0 pack !ofs data_len;
+  Bytes.blit jobdata 0 pack !ofs data_len;
 
   pack
